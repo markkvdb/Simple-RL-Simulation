@@ -22,8 +22,11 @@ class Depot(object):
     self.service_stock = 10
     self.repair_stock = 0
     self.out_server = out_server
+    self.sim_time = 0
 
     self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
+    self.log_events = pd.DataFrame(columns=['time', 'event'])
+
   
   def step(self):
     """Simulate one step of simulation for depot."""
@@ -36,12 +39,19 @@ class Depot(object):
 
     # Log step
     self._log()
+    self.sim_time += 1
+  
+  def save(self):
+    # Output logger to file
+    self.log_data.to_csv('output/depot_output.csv')
+    self.log_events.to_csv('output/depot_events.csv')
 
   def _release_policy(self):
     """Release policy of server."""
     while (self.repair_stock >= self._batch_size):
       self.repair_stock -= self._batch_size
       self.out_server.get_repairables(self._batch_size)
+      self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
     
   def _demand_step(self):
     """Let demand arrive and processes both stocks."""
@@ -59,7 +69,8 @@ class Depot(object):
 
   def _log(self):
     """Log relevant info of simulation."""
-    self.log_data.append([self.service_stock, self.repair_stock])
+    self.log_data = self.log_data.append({'service_stock': self.service_stock, 
+                                          'repair_stock': self.repair_stock}, ignore_index=True)
 
 
 
@@ -80,8 +91,10 @@ class Service(object):
     self.service_stock = 0
     self.repair_stock = 10
     self.out_server = out_server
+    self.sim_time = 0
 
     self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
+    self.log_events = pd.DataFrame(columns=['time', 'event'])
 
   def step(self):
     """Simulate one step of simulation for Service server."""
@@ -94,6 +107,12 @@ class Service(object):
 
     # Log info
     self._log()
+    self.sim_time += 1
+
+  def save(self):
+    # Output logger to file
+    self.log_data.to_csv('output/server_output.csv')
+    self.log_events.to_csv('output/server_events.csv')
 
   def get_repairables(self, batch_size):
     """Add incoming repairables to stock."""
@@ -111,13 +130,15 @@ class Service(object):
   
   def _release_policy(self):
     """Release policy of server."""
-    while (self.repair_stock >= self._batch_size):
+    while (self.service_stock >= self._batch_size):
       self.out_server.take_supply(self._batch_size)
       self.service_stock -= self._batch_size
+      self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
 
   def _log(self):
     """Log relevant info of simulation."""
-    self.log_data.append([self.service_stock, self.repair_stock])
+    self.log_data = self.log_data.append({'service_stock': self.service_stock, 
+                                          'repair_stock': self.repair_stock}, ignore_index=True)
 
 
 def main():
@@ -145,8 +166,9 @@ def main():
     depot.step()
     server.step()
 
-  # Combine log books and show 
-
+  # Save output to file 
+  depot.save()
+  server.save()
 
 if __name__ == "__main__":
   main()
