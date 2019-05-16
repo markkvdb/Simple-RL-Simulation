@@ -124,3 +124,6 @@ dmypy.json
 
 # Output file
 output/
+
+# VS Code
+.vscode/
