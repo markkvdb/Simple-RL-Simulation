@@ -6,8 +6,48 @@ import numpy as np
 import pandas as pd
 from tqdm import tqdm
 
-class Depot(object):
-  """Depot class that serves demand and collects repairable units.
+
+class Simulator(object):
+  """The Simulator class initiates and updates all entities in the simulation 
+
+  Attributes:
+    sim_entities: Array of all entities of the simulation (in order)
+    delta_time: Fraction of one unit of time for step size
+    sim_time: Total units of time for simulation
+  """
+
+  def __init__(self, sim_entities, delta_time, sim_time):
+    """Initialise Simulator class"""
+    self.sim_entities = sim_entities
+    self.delta_time = delta_time
+    self.sim_time = sim_time
+    self.n_steps = int(sim_time / delta_time)
+  
+  def initialise(self):
+    """Set parameters of the simulator to all entities"""
+    # For now, this is done manually by updating all entities
+    # [0] is customer, [1] is depot
+    self.sim_entities[0].demand_rate *= self.delta_time
+    self.sim_entities[1].repair_rate *= self.delta_time
+
+  def _step(self):
+    """Simulate one time step for all entities (in order)"""
+    for entity in self.sim_entities:
+      entity.step()
+  
+  def run(self):
+    """Run simulation"""
+    for t in tqdm(range(self.n_steps)):
+      self._step()
+  
+  def save(self):
+    """Save output of the simulation"""
+    for entity in self.sim_entities:
+      entity.save()
+
+
+class Customer(object):
+  """Customer class that uses units and sends repairs.
 
   Attributes:
     service_stock: Net stock of servicable units.
@@ -17,12 +57,13 @@ class Depot(object):
 
   def __init__(self, batch_size, demand_rate, out_server=None):
     """Initialise Depot class."""
-    self._batch_size = batch_size
-    self._demand_rate = demand_rate
+    self.batch_size = batch_size
+    self.demand_rate = demand_rate
     self.service_stock = 10
     self.repair_stock = 0
     self.out_server = out_server
     self.sim_time = 0
+    self.batch_model = batch_size > 0
 
     self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
     self.log_events = pd.DataFrame(columns=['time', 'event'])
@@ -42,22 +83,26 @@ class Depot(object):
     self.sim_time += 1
   
   def save(self):
-    # Output logger to file
-    self.log_data.to_csv('output/depot_output.csv')
-    self.log_events.to_csv('output/depot_events.csv')
+    """Output log file to CSV"""
+    self.log_data.to_csv('output/customer_output.csv')
+    self.log_events.to_csv('output/customer_events.csv')
 
   def _release_policy(self):
     """Release policy of server."""
-    while (self.repair_stock >= self._batch_size):
-      self.repair_stock -= self._batch_size
-      self.out_server.get_repairables(self._batch_size)
-      self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
+    if self.batch_model:
+      while (self.repair_stock >= self.batch_size):
+        self.repair_stock -= self.batch_size
+        self.out_server.get_repairables(self.batch_size)
+        self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
+    else:
+      self.out_server.get_repairables(self.repair_stock)
+      self.repair_stock = 0
     
   def _demand_step(self):
     """Let demand arrive and processes both stocks."""
     
     # Let demand arrive (for now deterministic)
-    demand_size = self._demand_rate
+    demand_size = self.demand_rate
 
     # Repairable stock increases with demand and service stock lowers
     self.repair_stock += demand_size
@@ -73,10 +118,9 @@ class Depot(object):
                                           'repair_stock': self.repair_stock}, ignore_index=True)
 
 
-
-class Service(object):
-  """Service class that repairs repairable units and sends servicable units to
-  depot.
+class Depot(object):
+  """Depot class that repairs repairable units and sends servicable units to
+  customer.
   
   Attributes:
     service_stock: Net stock of servicable units.
@@ -86,12 +130,13 @@ class Service(object):
 
   def __init__(self, batch_size, repair_rate, out_server=None):
     """Initialise Service class."""
-    self._batch_size = batch_size
-    self._repair_rate = repair_rate
+    self.batch_size = batch_size
+    self.repair_rate = repair_rate
     self.service_stock = 0
     self.repair_stock = 10
     self.out_server = out_server
     self.sim_time = 0
+    self.batch_model = batch_size > 0
 
     self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
     self.log_events = pd.DataFrame(columns=['time', 'event'])
@@ -110,9 +155,9 @@ class Service(object):
     self.sim_time += 1
 
   def save(self):
-    # Output logger to file
-    self.log_data.to_csv('output/server_output.csv')
-    self.log_events.to_csv('output/server_events.csv')
+    """Output logger df to file"""
+    self.log_data.to_csv('output/depot_output.csv')
+    self.log_events.to_csv('output/depot_events.csv')
 
   def get_repairables(self, batch_size):
     """Add incoming repairables to stock."""
@@ -122,7 +167,7 @@ class Service(object):
     """Handle repair station at time step."""
 
     # Repair size is minimum of repair stock and repair rate
-    repair_size = min(self.repair_stock, self._repair_rate)
+    repair_size = min(self.repair_stock, self.repair_rate)
 
     # Update repairable stocks and servicable stocks
     self.repair_stock -= repair_size
@@ -130,10 +175,14 @@ class Service(object):
   
   def _release_policy(self):
     """Release policy of server."""
-    while (self.service_stock >= self._batch_size):
-      self.out_server.take_supply(self._batch_size)
-      self.service_stock -= self._batch_size
-      self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
+    if self.batch_model:
+      while (self.service_stock >= self.batch_size):
+        self.out_server.take_supply(self.batch_size)
+        self.service_stock -= self.batch_size
+        self.log_events = self.log_events.append({'time': self.sim_time, 'event': 'order'}, ignore_index=True)
+    else:
+      self.out_server.take_supply(self.service_stock)
+      self.service_stock = 0
 
   def _log(self):
     """Log relevant info of simulation."""
@@ -143,36 +192,31 @@ class Service(object):
 
 def main():
   # Settings of simulation
-  n_time_steps = 1000
+  sim_time = 1000
+  time_delta = 0.01
 
   # Settings depot
-  depot_batch_size = 5
-  depot_demand_rate = 1
+  customer_batch_size = 5
+  customer_demand_rate = 1
   
   # Settings server
-  server_batch_size = 1
-  server_repair_rate = 2
+  depot_batch_size = 1
+  depot_repair_rate = 2
 
   # Create simulation objects
-  depot = Depot(depot_batch_size, depot_demand_rate)
-  server = Service(server_batch_size, server_repair_rate)
+  customer = Customer(customer_batch_size, customer_demand_rate)
+  depot = Depot(depot_batch_size, depot_repair_rate)
 
   # Link outgoing service stations
-  depot.out_server = server
-  server.out_server = depot
+  customer.out_server = depot
+  depot.out_server = customer
 
-  for t in tqdm(range(n_time_steps)):
-    # Process time step for elements
-    depot.step()
-    server.step()
-
-  # Save output to file 
-  depot.save()
-  server.save()
+  # Create and run simulator
+  simulator = Simulator([customer, depot], time_delta, sim_time)
+  simulator.initialise()
+  simulator.run()
+  simulator.save()
 
 if __name__ == "__main__":
   main()
-
-
-
-
+  
