@@ -45,6 +45,21 @@ class Simulator(object):
     for entity in self.sim_entities:
       entity.save()
 
+  def output_df(self):
+    """After the simulation is complete, create a neat data frame"""
+    data_customer = self.sim_entities[0].log_data
+    data_depot = self.sim_entities[1].log_data
+
+    # Combine datasets
+    data_customer.columns = 'customer_' + data_customer.columns
+    data_depot.columns = "depot_" + data_depot.columns
+    all_data = pd.concat([data_customer, data_depot], axis=1)
+
+    # Add time column
+    all_data['time'] = np.linspace(start=0, stop=self.sim_time, num=self.n_steps)
+
+    return(all_data)
+
 
 class Customer(object):
   """Customer class that uses units and sends repairs.
@@ -198,7 +213,7 @@ def main():
   # Settings depot
   customer_batch_size = 5
   customer_demand_rate = 1
-  
+
   # Settings server
   depot_batch_size = 1
   depot_repair_rate = 2
