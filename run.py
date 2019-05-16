@@ -59,7 +59,7 @@ class Customer(object):
     """Initialise Depot class."""
     self.batch_size = batch_size
     self.demand_rate = demand_rate
-    self.service_stock = 10
+    self.service_stock = batch_size
     self.repair_stock = 0
     self.out_server = out_server
     self.sim_time = 0
@@ -132,8 +132,8 @@ class Depot(object):
     """Initialise Service class."""
     self.batch_size = batch_size
     self.repair_rate = repair_rate
-    self.service_stock = 0
-    self.repair_stock = 10
+    self.service_stock = batch_size
+    self.repair_stock = 0
     self.out_server = out_server
     self.sim_time = 0
     self.batch_model = batch_size > 0
@@ -192,7 +192,7 @@ class Depot(object):
 
 def main():
   # Settings of simulation
-  sim_time = 1000
+  sim_time = 20
   time_delta = 0.01
 
   # Settings depot
@@ -219,4 +219,3 @@ def main():
 
 if __name__ == "__main__":
   main()
-  
