@@ -5,16 +5,27 @@
 from sim_components import Warehouse, Depot, Simulator
 
 def main():
-  # Settings of simulation
+  # Common settings of the simulation
   sim_time = 20
   time_delta = 0.01
 
+  # Settings dict
+  settings = {}
+  settings['demand_rate'] = 1
+  settings['repair_rate'] = 100000
+  settings['Q_service'] = 2
+  settings['Q_repair'] = 4
+  settings['R_service'] = 2
+
   # Create and run simulator
-  simulator = Simulator(time_delta, sim_time)
+  simulator = Simulator(time_delta, sim_time, settings)
   simulator.run()
 
   # Save
   simulator.save()
+
+  # Get data
+  stock_info, event_info = simulator.create_output_df()
 
 if __name__ == "__main__":
   main()
