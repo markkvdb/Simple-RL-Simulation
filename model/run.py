@@ -15,7 +15,8 @@ def main():
   settings['repair_rate'] = 100000
   settings['Q_service'] = 2
   settings['Q_repair'] = 4
-  settings['R_service'] = 2
+  settings['S_depot'] = 2
+  settings['S_warehouse'] = 0
 
   # Create and run simulator
   simulator = Simulator(time_delta, sim_time, settings)
@@ -25,7 +26,8 @@ def main():
   simulator.save()
 
   # Get data
-  stock_info, event_info = simulator.create_output_df()
+  stock_info = simulator.create_output_df()
+  stock_info.to_csv('output/neat_df.csv')
 
 if __name__ == "__main__":
   main()

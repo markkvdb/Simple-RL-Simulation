@@ -8,7 +8,6 @@ import pandas as pd
 from tqdm import tqdm
 
 
-
 class Simulator(object):
   """The Simulator class initiates and updates all entities in the simulation
 
@@ -32,7 +31,8 @@ class Simulator(object):
     # Inventory model
     self.model = InventoryModel(Q_service = settings['Q_service'], 
                                 Q_repair = settings['Q_repair'],
-                                R_service = settings['R_service'],
+                                S_depot = settings['S_depot'],
+                                S_warehouse = settings['S_warehouse'],
                                 demand_rate = settings['demand_rate'] * delta_time,
                                 repair_rate = settings['repair_rate'] * delta_time)
 
@@ -43,14 +43,7 @@ class Simulator(object):
 
 
   def create_output_df(self):
-
-
-    # Save data
-    stock_info.to_csv('output/stock_info.csv')
-    event_info.to_csv('output/event_info.csv')
-
-    # Combine
-    return (stock_info, event_info)
+    return self.model.create_output_df()
 
 
   def save(self):
@@ -66,7 +59,7 @@ class InventoryModel(object):
     entities: list of entities used in the simulation
   """
 
-  def __init__(self, Q_service, Q_repair, R_service, demand_rate, 
+  def __init__(self, Q_service, Q_repair, S_depot, S_warehouse, demand_rate, 
                repair_rate):
     """Initialise InventoryModel class."""
     # Entities of model
@@ -76,7 +69,8 @@ class InventoryModel(object):
     # Policy settings
     self.q_service = Q_service
     self.q_repair = Q_repair
-    self.r_service = R_service
+    self.s_depot = S_depot
+    self.s_warehouse = S_warehouse
 
     # Costs
     self.c_service = 1
@@ -92,18 +86,19 @@ class InventoryModel(object):
 
   def policy_upstream(self):
     """Order policy of the depot. Once inventory position drops below
-    R, we initiate an order of size Q."""
+    S, we initiate an order of size Q."""
 
-    # Place orders as long as inventory position is below R 
-    while (self.depot.get_service_inventory_position() < self.r_service):
+    # Place orders as long as inventory position is below S
+    while (self.depot.get_service_inventory_position() < self.s_depot):
       self.depot.place_order(self.q_service)
 
     # Send orders if they are available
     transport_order_size = self.warehouse.get_order(self.depot.service_stock_order, self.q_service)
-    self.depot.get_serviceables(transport_order_size)
 
-    # Log orders
     if transport_order_size > 0:
+      self.depot.get_serviceables(transport_order_size)
+
+      # Log order
       self.event_data = self.event_data.append({
         'time': self.time,
         'event': 'service_order',
@@ -152,23 +147,30 @@ class InventoryModel(object):
 
   def add_cost_column(self, stock_info):
     """Cost at certain time period"""
+    # Reshape the event data such that each row consistutes one time period
+    event_data = self.event_data.pivot(index='time', columns='event', values='quantity')
+
+    # Add order events to dataset and set NA values to 0
+    stock_info = stock_info.merge(event_data, how="left", on="time")
+    stock_info = stock_info.fillna(value={'repair_shipment':0, 'service_order':0})
+
     # Add cost of service order
-    stock_info.order_cost = self.event_data[self.event_data.event == 'service_order'].iloc[stock_info.time, 'quantity'] * self.c_service
+    stock_info['order_cost_service'] = stock_info.service_order * self.c_service
 
     # Add cost of repair shpiment
-    stock_info.order_cost += self.event_data[self.event_data.event == 'repair_shipment'].iloc[stock_info.time, 'quantity'] * self.c_repair
+    stock_info['order_cost_repair'] = stock_info.repair_shipment * self.c_repair
     
     # Add holding cost serviceables
-    stock_info.hold_cost_serviceables = (max(stock_info.service_stock_depot, 0) + max(stock_info.service_stock_warehouse, 0)) * self.h_service
+    stock_info['hold_cost_serviceables'] = (stock_info.service_stock_depot.clip(lower=0) + stock_info.service_stock_warehouse.clip(lower=0)) * self.h_service
 
     # Add back order cost serviceables
-    stock_info.back_cost_serviceables = max(-stock_info.service_stock_depot, 0) * self.b_service
+    stock_info['back_cost_serviceables'] = -stock_info.service_stock_depot.clip(upper=0) * self.b_service
 
     # Add holding cost repairables
-    stock_info.hold_cost_repairables = (stock_info.service_stock_depot + stock_info.service_stock_warehouse) * self.h_repair
+    stock_info['hold_cost_repairables'] = (stock_info.service_stock_depot + stock_info.service_stock_warehouse) * self.h_repair
 
     # Combine all costs
-    stock_info.costs = stock_info.order_cost + stock_info.hold_cost_serviceables + stock_info.back_cost_serviceables + stock_info.hold_cost_repairables
+    stock_info['costs'] = stock_info.order_cost_service + stock_info.order_cost_repair + stock_info.hold_cost_serviceables + stock_info.back_cost_serviceables + stock_info.hold_cost_repairables
 
     return stock_info
 
@@ -186,11 +188,18 @@ class InventoryModel(object):
     # Add cost per unit time
     stock_info = self.add_cost_column(stock_info)
 
+    return stock_info
+
 
   def save(self):
     """Save info of simulation"""
+    # Save inventory information
     self.depot.save()
     self.warehouse.save()
+
+    # Save event data
+    self.event_data.pivot(index='time', columns='event', values='quantity').to_csv('output/event_data.csv')
+
 
 
 class Depot(object):
