@@ -32,6 +32,10 @@ def experiment_runner(settings, sim_time, time_delta):
     for setting, value in settings_experiment.items():
       sim_data[setting] = value
 
+    # Add column containing all settings as string
+    setting_str = [name + '=' + str(value) for name, value in settings_experiment.items()]
+    sim_data['settings'] = ', '.join(setting_str)
+
     sim_dfs = sim_dfs.append(sim_data)
 
   # Change time column
