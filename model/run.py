@@ -12,7 +12,7 @@ def main():
   # Settings dict
   settings = {}
   settings['demand_rate'] = 1
-  settings['repair_rate'] = 100000
+  settings['repair_rate'] = 2
   settings['Q_service'] = 2
   settings['Q_repair'] = 4
   settings['S_depot'] = 2

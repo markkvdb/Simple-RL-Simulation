@@ -63,8 +63,8 @@ class InventoryModel(object):
                repair_rate):
     """Initialise InventoryModel class."""
     # Entities of model
-    self.depot = Depot(demand_rate)
-    self.warehouse = Warehouse(repair_rate)
+    self.depot = Depot(demand_rate, init_service_stock=S_depot)
+    self.warehouse = Warehouse(repair_rate, init_service_stock=S_warehouse)
 
     # Policy settings
     self.q_service = Q_service
