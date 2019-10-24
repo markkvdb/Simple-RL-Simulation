@@ -263,12 +263,12 @@ class Depot(object):
     """Process incoming servicables."""
 
     # If there are back-orders, serve these first
-    if self.service_back_orders > 0:
-      batch_back = min(self.service_back_orders, batch_size)
-      self.service_back_orders -= batch_back
+    batch_back = min(self.service_back_orders, batch_size)
+    self.service_back_orders -= batch_back
 
+    # Remainig stock goes to inventory
     self.service_stock += batch_size - batch_back
-    self.service_stock_order -= batch_size
+    self.service_stock_order -= batch_size - batch_back
 
   def get_service_inventory_position(self):
     return self.service_stock + self.service_stock_order - self.service_back_orders
@@ -313,7 +313,12 @@ class Warehouse(object):
 
   def get_order(self, n_units, order_size):
     """Send service stock to depot if available."""
-    n_orders = int(self.service_stock / order_size)
+    # Check how many orders are requested and available and send as much as we
+    # can
+    n_orders_requested = int(n_units / order_size)
+    n_orders_avail = int(self.service_stock / order_size)
+    n_orders = min(n_orders_requested, n_orders_avail)
+    
     order_quantity = n_orders * order_size
 
     if n_orders > 0:
