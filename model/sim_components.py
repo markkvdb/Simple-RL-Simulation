@@ -217,6 +217,7 @@ class Depot(object):
     # Inventory levels
     self.service_stock = init_service_stock
     self.service_stock_order = 0
+    self.service_back_orders = 0
     self.repair_stock_level = init_repair_stock
     self.repair_stock = 0
 
@@ -244,7 +245,12 @@ class Depot(object):
 
     # Repairable stock increases with demand and service stock lowers
     self.repair_stock += demand_size
-    self.service_stock -= demand_size
+
+    if demand_size > self.service_stock:
+      self.service_stock = 0
+      self.service_back_orders += demand_size - self.service_stock
+    else:
+      self.service_stock -= demand_size
 
   def place_order(self, order_size):
     """Make an order of size Q"""
@@ -252,11 +258,17 @@ class Depot(object):
 
   def get_serviceables(self, batch_size):
     """Process incoming servicables."""
-    self.service_stock += batch_size
+
+    # If there are back-orders, serve these first
+    if self.service_back_orders > 0:
+      batch_back = min(self.service_back_orders, batch_size)
+      self.service_back_orders -= batch_back
+
+    self.service_stock += batch_size - batch_back
     self.service_stock_order -= batch_size
 
   def get_service_inventory_position(self):
-    return self.service_stock + self.service_stock_order
+    return self.service_stock + self.service_stock_order - self.service_back_orders
 
   def get_repair_inventory_position(self):
     return self.repair_stock
@@ -264,6 +276,8 @@ class Depot(object):
   def log(self):
     """Log relevant info of simulation."""
     self.log_data = self.log_data.append({'service_stock': self.service_stock,
+                                          'service_order': self.service_stock_order,
+                                          'service_back_orders': self.service_back_orders,
                                           'service_stock_position': self.get_service_inventory_position(),
                                           'repair_stock': self.repair_stock}, ignore_index=True)
 
@@ -296,9 +310,11 @@ class Warehouse(object):
 
   def get_order(self, n_units, order_size):
     """Send service stock to depot if available."""
-    n_orders = int(n_units / order_size)
+    n_orders = int(self.service_stock / order_size)
     order_quantity = n_orders * order_size
-    self.service_stock -= order_quantity
+
+    if n_orders > 0:
+      self.service_stock -= order_quantity
 
     return order_quantity
 
