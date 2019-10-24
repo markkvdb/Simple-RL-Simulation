@@ -155,7 +155,7 @@ class InventoryModel(object):
     stock_info = stock_info.fillna(value={'repair_shipment':0, 'service_order':0})
 
     # Add cost of service order
-    stock_info['order_cost_service'] = stock_info.service_order * self.c_service
+    stock_info['order_cost_service'] = stock_info.service_orders * self.c_service
 
     # Add cost of repair shpiment
     stock_info['order_cost_repair'] = stock_info.repair_shipment * self.c_repair
@@ -164,7 +164,7 @@ class InventoryModel(object):
     stock_info['hold_cost_serviceables'] = (stock_info.service_stock_depot.clip(lower=0) + stock_info.service_stock_warehouse.clip(lower=0)) * self.h_service
 
     # Add back order cost serviceables
-    stock_info['back_cost_serviceables'] = -stock_info.service_stock_depot.clip(upper=0) * self.b_service
+    stock_info['back_cost_serviceables'] = stock_info.service_back_orders * self.b_service
 
     # Add holding cost repairables
     stock_info['hold_cost_repairables'] = (stock_info.service_stock_depot + stock_info.service_stock_warehouse) * self.h_repair
@@ -224,8 +224,8 @@ class Depot(object):
     # Demand rate
     self.demand_rate = demand_rate
 
-    self.log_data = pd.DataFrame(columns=['service_stock', 
-    'service_stock_position', 'repair_stock'])
+    self.log_data = pd.DataFrame(columns=['service_stock', 'service_orders',
+    'service_back_orders', 'service_stock_position', 'repair_stock'])
   
   def save(self):
     """Output log file to CSV"""
@@ -276,7 +276,7 @@ class Depot(object):
   def log(self):
     """Log relevant info of simulation."""
     self.log_data = self.log_data.append({'service_stock': self.service_stock,
-                                          'service_order': self.service_stock_order,
+                                          'service_orders': self.service_stock_order,
                                           'service_back_orders': self.service_back_orders,
                                           'service_stock_position': self.get_service_inventory_position(),
                                           'repair_stock': self.repair_stock}, ignore_index=True)
