@@ -16,7 +16,9 @@ def main():
   settings['Q_service'] = 2
   settings['Q_repair'] = 4
   settings['S_depot'] = 2
-  settings['S_warehouse'] = 0
+  settings['S_warehouse'] = 2
+  settings['init_stock_depot'] = 4
+  settings['init_stock_warehouse'] = 2
 
   # Create and run simulator
   simulator = Simulator(time_delta, sim_time, settings)

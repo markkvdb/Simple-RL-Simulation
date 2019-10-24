@@ -34,7 +34,10 @@ class Simulator(object):
                                 S_depot = settings['S_depot'],
                                 S_warehouse = settings['S_warehouse'],
                                 demand_rate = settings['demand_rate'] * delta_time,
-                                repair_rate = settings['repair_rate'] * delta_time)
+                                repair_rate = settings['repair_rate'] * delta_time,
+                                init_stock_depot = settings['init_stock_depot'],
+                                init_stock_warehouse = settings['init_stock_warehouse']
+    )
 
   def run(self):
     """Run simulation"""
@@ -60,11 +63,11 @@ class InventoryModel(object):
   """
 
   def __init__(self, Q_service, Q_repair, S_depot, S_warehouse, demand_rate, 
-               repair_rate):
+               repair_rate, init_stock_depot, init_stock_warehouse):
     """Initialise InventoryModel class."""
     # Entities of model
-    self.depot = Depot(demand_rate, init_service_stock=S_depot)
-    self.warehouse = Warehouse(repair_rate, init_service_stock=S_warehouse)
+    self.depot = Depot(demand_rate, init_stock_depot)
+    self.warehouse = Warehouse(repair_rate, init_stock_warehouse)
 
     # Policy settings
     self.q_service = Q_service
@@ -211,14 +214,14 @@ class Depot(object):
     out_server: Server to send units to.
   """
 
-  def __init__(self, demand_rate, init_repair_stock=0, init_service_stock=10):
+  def __init__(self, demand_rate, init_service_stock):
     """Initialise Depot class."""
 
     # Inventory levels
     self.service_stock = init_service_stock
     self.service_stock_order = 0
     self.service_back_orders = 0
-    self.repair_stock_level = init_repair_stock
+    self.repair_stock_level = 0
     self.repair_stock = 0
 
     # Demand rate
@@ -292,10 +295,10 @@ class Warehouse(object):
     out_server: Server to send units to.
   """
 
-  def __init__(self, repair_rate, init_service_stock=0, init_repair_stock=0):
+  def __init__(self, repair_rate, init_service_stock):
     """Initialise Warehouse class."""
     self.service_stock = init_service_stock
-    self.repair_stock = init_repair_stock
+    self.repair_stock = 0
     self.repair_rate = repair_rate
 
     self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
