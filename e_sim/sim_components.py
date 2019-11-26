@@ -6,44 +6,52 @@ from sys import exit
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
+from enum import Enum
+from heapq import heappush, heappop
 
+
+# All events in our model
+class Events(Enum):
+  DEMAND = auto()
+  REPAIR = auto()
+  SHIP_REPAIR = auto()
+  SHIP_SERVICE = auto()
 
 class Simulator(object):
   """The Simulator class initiates and updates all entities in the simulation
 
   Attributes:
     sim_entities: Array of all entities of the simulation (in order)
-    delta_time: Fraction of one unit of time for step size
+    delta_time: Fraction of one unit of time for step sz
     sim_time: Total units of time for simulation
 
   Methods:
     initialise: 
   """
 
-  def __init__(self, delta_time, sim_time, settings):
+  def __init__(self, sim_time, settings):
     """Initialise Simulator class"""
 
     # Time of simulation attributes
-    self.delta_time = delta_time
     self.sim_time = sim_time
-    self.n_steps = int(sim_time / delta_time)
 
     # Inventory model
     self.model = InventoryModel(Q_service = settings['Q_service'], 
                                 Q_repair = settings['Q_repair'],
                                 S_depot = settings['S_depot'],
                                 S_warehouse = settings['S_warehouse'],
-                                demand_rate = settings['demand_rate'] * delta_time,
-                                repair_rate = settings['repair_rate'] * delta_time,
+                                demand_rate = settings['demand_rate'],
+                                repair_rate = settings['repair_rate'],
                                 init_stock_depot = settings['init_stock_depot'],
                                 init_stock_warehouse = settings['init_stock_warehouse']
     )
 
   def run(self):
     """Run simulation"""
-    for t in tqdm(range(self.n_steps)):
-      self.model.sim_step()
+    self.model.init_queue()
 
+    while self.model.time < self.sim_time:
+      self.model.sim_step()
 
   def create_output_df(self):
     return self.model.create_output_df()
@@ -86,45 +94,70 @@ class InventoryModel(object):
     self.time = 0
     self.event_data = pd.DataFrame(columns=['time', 'event', 'quantity'])
 
+    # Event queue
+    self.eq = []
+  
+  def handle_event(self, event):
+    """Handles repair and demand event"""
+    event_type, sz = event
+
+    if event_type == Events.DEMAND:
+      self._handle_event_demand(sz)
+    elif event_type == Events.REPAIR:
+      self._handle_event_repair(sz)
+    elif event_type == Events.SHIP_REPAIR:
+      self._handle_event_shiprepair(sz)
+    elif event_type == Events.SHIP_SERVICE:
+      self._handle_event_shipservice(sz)
+
+  def _handle_event_demand(self, sz):
+    # Update stocking levels
+    self.depot.process_demand(sz)
+
+    # Add new demand to queue
+    dt, new_sz = self.depot.create_demand()
+    heappush(self.eq, (self.time + dt, (Events.DEMAND, new_sz)))
+
+  def _handle_event_repair(self, sz):
+    # Update stocking levels
+    self.warehouse.process_repair(sz)
+
+    # Add new repair to queue
+    dt, new_sz = self.warehouse.create_repair()
+    heappush(self.eq, (self.time + dt, (Events.REPAIR, new_sz)))
+  
+  def _handle_event_shiprepair(self, sz):
+    # Update repair stock of warehouse
+    self.warehouse.get_repairables(sz)
+  
+  def _handle_event_shipservice(self, sz):
+    # Handle serviceable order
+    self.depot.get_serviceables(sz)
 
   def policy_upstream(self):
     """Order policy of the depot. Once inventory position drops below
-    S, we initiate an order of size Q."""
+    S, we initiate an order of sz Q."""
 
     # Place orders as long as inventory position is below S
     while (self.depot.get_service_inventory_position() < self.s_depot):
       self.depot.place_order(self.q_service)
 
     # Send orders if they are available
-    transport_order_size = self.warehouse.get_order(self.depot.service_stock_order, self.q_service)
+    order_sz = self.warehouse.get_order(self.depot.service_stock_order, self.q_service)
 
-    if transport_order_size > 0:
-      self.depot.get_serviceables(transport_order_size)
-
-      # Log order
-      self.event_data = self.event_data.append({
-        'time': self.time,
-        'event': 'service_order',
-        'quantity': int(transport_order_size / self.q_service)
-        }, ignore_index=True)
-
+    if order_sz > 0:
+      # TODO implement transport time
+      heappush(self.eq, (self.time + 1, (Events.SHIP_SERVICE, order_sz)))
 
   def policy_downstream(self):
     """Send repairable units to warehouse once we collected Q units."""
-    n_transports = 0
+    n = 0
     while (self.depot.repair_stock >= self.q_repair):
       self.depot.repair_stock -= self.q_repair
-      self.warehouse.get_repairables(self.q_repair)
-      n_transports += 1
+      n += 1
 
-    # Log transport
-    if n_transports > 0:
-      self.event_data = self.event_data.append({
-        'time': self.time,
-        'event': 'repair_shipment',
-        'quantity': n_transports
-      }, ignore_index=True)
-  
+    if n > 0:
+      heappush(self.eq, (self.time + 1, (Events.SHIP_REPAIR, n*self.q_repair)))
 
   def sim_step(self):
     """Simulate one time step for all entities (in order). In the first sim
@@ -133,20 +166,20 @@ class InventoryModel(object):
       2) Repairable units are processed in warehouse;
       3) Ordering policies are checked.
     """
-    # Step 1 and 2)
-    self.depot.demand_step()
-    self.warehouse.repair_step()
+    # Get first event from queue
+    time, event = heappop(self.eq)
 
-    # Step 3)
+    # Handle event and update time
+    self.handle_event(event)
+    self.time = time
+
+    # Check policies
     self.policy_upstream()
     self.policy_downstream()
 
     # Log data
     self.depot.log()
     self.warehouse.log()
-
-    # Increase time step
-    self.time += 1
 
   def add_cost_column(self, stock_info):
     """Cost at certain time period"""
@@ -176,7 +209,6 @@ class InventoryModel(object):
     stock_info['costs'] = stock_info.order_cost_service + stock_info.order_cost_repair + stock_info.hold_cost_serviceables + stock_info.back_cost_serviceables + stock_info.hold_cost_repairables
 
     return stock_info
-
   
   def create_output_df(self):
     """Collect inventory levels and positions of models."""
@@ -202,7 +234,6 @@ class InventoryModel(object):
 
     # Save event data
     self.event_data.pivot(index='time', columns='event', values='quantity').to_csv('output/event_data.csv')
-
 
 
 class Depot(object):
@@ -234,41 +265,38 @@ class Depot(object):
     """Output log file to CSV"""
     self.log_data.to_csv('output/depot_output.csv')
 
-  def demand_process(self):
-    """Demand for one timestep.
+  def create_demand(self):
+    """Demand for one timestep. Give time to next demand and size
     
     TODO implement random process."""
-    return self.demand_rate
+    return (1, 1)
     
-  def demand_step(self):
+  def process_demand(self, sz):
     """Let demand arrive and processes both stocks."""
-    
-    # Let demand arrive (for now deterministic)
-    demand_size = self.demand_process()
 
     # Repairable stock increases with demand and service stock lowers
-    self.repair_stock += demand_size
+    self.repair_stock += sz
 
-    if demand_size > self.service_stock:
+    if sz > self.service_stock:
       self.service_stock = 0
-      self.service_back_orders += demand_size - self.service_stock
+      self.service_back_orders += sz - self.service_stock
     else:
-      self.service_stock -= demand_size
+      self.service_stock -= sz
 
-  def place_order(self, order_size):
-    """Make an order of size Q"""
-    self.service_stock_order += order_size
+  def place_order(self, sz):
+    """Make an order of sz Q"""
+    self.service_stock_order += sz
 
-  def get_serviceables(self, batch_size):
+  def get_serviceables(self, sz):
     """Process incoming servicables."""
 
     # If there are back-orders, serve these first
-    batch_back = min(self.service_back_orders, batch_size)
-    self.service_back_orders -= batch_back
+    back_sz = min(self.service_back_orders, sz)
+    self.service_back_orders -= back_sz
 
-    # Remainig stock goes to inventory
-    self.service_stock += batch_size - batch_back
-    self.service_stock_order -= batch_size - batch_back
+    # Remaining stock goes to inventory
+    self.service_stock += sz - back_sz
+    self.service_stock_order -= sz - back_sz
 
   def get_service_inventory_position(self):
     return self.service_stock + self.service_stock_order - self.service_back_orders
@@ -307,34 +335,33 @@ class Warehouse(object):
     """Output logger df to file"""
     self.log_data.to_csv('output/warehouse_output.csv')
 
-  def get_repairables(self, nb_items):
+  def get_repairables(self, sz):
     """Add incoming repairables to stock."""
-    self.repair_stock += nb_items
+    self.repair_stock += sz
 
-  def get_order(self, n_units, order_size):
+  def get_order(self, n_units, order_sz):
     """Send service stock to depot if available."""
     # Check how many orders are requested and available and send as much as we
     # can
-    n_orders_requested = int(n_units / order_size)
-    n_orders_avail = int(self.service_stock / order_size)
+    n_orders_requested = int(n_units / order_sz)
+    n_orders_avail = int(self.service_stock / order_sz)
     n_orders = min(n_orders_requested, n_orders_avail)
     
-    order_quantity = n_orders * order_size
+    order_quantity = n_orders * order_sz
 
     if n_orders > 0:
       self.service_stock -= order_quantity
 
     return order_quantity
 
-  def repair_step(self):
+  def process_repair(self, sz):
     """Handle repair station at time step."""
+    self.repair_stock -= sz
+    self.service_stock += sz
 
-    # Repair size is minimum of repair stock and repair rate
-    repair_size = min(self.repair_stock, self.repair_rate)
-
-    # Update repairable stocks and servicable stocks
-    self.repair_stock -= repair_size
-    self.service_stock += repair_size
+  def create_repair(self):
+    """Create new repair job"""
+    return (0.5, 1)
 
   def log(self):
     """Log relevant info of simulation."""

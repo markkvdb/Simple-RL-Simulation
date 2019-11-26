@@ -1,7 +1,7 @@
 import pandas as pd
 from itertools import product
 
-from model.sim_components import Simulator
+from .sim_components import Simulator
 
 
 def experiment_runner(settings, sim_time, time_delta):
