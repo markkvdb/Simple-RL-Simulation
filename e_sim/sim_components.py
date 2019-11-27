@@ -19,20 +19,47 @@ class Events(Enum):
   SHIP_REPAIR = 3
   SHIP_SERVICE = 4
 
+  def __lt__(self, other):
+    return self.value < other.value
+
 
 @dataclass(order=True)
 class EventItem:
-  time: int
+  time: float
   event_type: Events
   sz: int
   
-  def __lt__(self, other):
-    if self.time < other.time:
-      return True
-    elif self.time == other.time and self.event_type.value < other.event_type.value:
-      return True
-    else:
-      return False
+  def to_series(self):
+    return pd.Series({'time': self.time,
+                      'event': self.event_type.name,
+                      'quantity': self.sz})
+
+
+class EventQueue(object):
+  """Wrapper for heapq. Handles pushing, popping and searching items."""
+  def __init__(self):
+    self.eq = []
+    self.event_types = {}
+
+    # Add event_types
+    for event in Events:
+      self.event_types[event] = 0
+  
+  def push(self, event: EventItem):
+    heappush(self.eq, event)
+    self.event_types[event.event_type] += 1
+
+  def push2(self, time: float, event_type: Events, sz: int):
+    heappush(self.eq, EventItem(time, event_type, sz))
+    self.event_types[event_type] += 1
+  
+  def pop(self):
+    event = heappop(self.eq)
+    self.event_types[event.event_type] -= 1
+    return event
+  
+  def find(self, event_type: Events):
+    return self.event_types[event_type]
 
 
 class Simulator(object):
@@ -120,11 +147,11 @@ class InventoryModel(object):
     self.t_transport = 1
 
     # Logging info
-    self.time = 0
+    self.time = 0.0
     self.event_data = pd.DataFrame(columns=['time', 'event', 'quantity'])
 
     # Event queue
-    self.eq = []
+    self.eq = EventQueue()
   
   def init_queue(self):
     """Initialise the model with a demand (and potentially a repair)."""
@@ -133,7 +160,8 @@ class InventoryModel(object):
 
   def handle_event(self, event: EventItem):
     """Handles repair and demand event"""
-    event_type, sz = event
+    event_type = event.event_type
+    sz = event.sz
 
     if event_type == Events.DEMAND:
       self._handle_event_demand(sz)
@@ -145,7 +173,7 @@ class InventoryModel(object):
       self._handle_event_shipservice(sz)
 
     # Log event
-    self.event_data = self.event_data.append(), ignore_index=True)
+    self.event_data = self.event_data.append(event.to_series(), ignore_index=True)
 
   def _handle_event_demand(self, sz: int):
     """Update stocking levels and create new demand event"""
@@ -161,6 +189,7 @@ class InventoryModel(object):
     # Update repair stock of warehouse
     self.shipped_repair -= sz
     self.warehouse.get_repairables(sz)
+    self._new_repair()
 
   def _handle_event_shipservice(self, sz: int):
     # Handle serviceable order
@@ -170,14 +199,14 @@ class InventoryModel(object):
   def _new_demand(self):
     """Create new demand (take from demand interarrival time distribution) and add to event queue."""
     dt, new_sz = self.depot.create_demand()
-    heappush(self.eq, (self.time + dt, (Events.DEMAND, new_sz)))
+    self.eq.push2(self.time + dt, Events.DEMAND, new_sz)
 
   def _new_repair(self):
     """Unlike demand, repairs can only be issued when repair stock is 
     available at the warehouse."""
-    if self.warehouse.repair_stock > 0:
+    if self.warehouse.repair_stock > 0 and self.eq.find(Events.REPAIR) == 0:
       dt, new_sz = self.warehouse.create_repair()
-      heappush(self.eq, (self.time + dt, (Events.REPAIR, new_sz)))
+      self.eq.push2(self.time + dt, Events.REPAIR, new_sz)
 
   def policy_upstream(self):
     """Order policy of the depot. Once inventory position drops below
@@ -191,7 +220,7 @@ class InventoryModel(object):
 
     if order_sz > 0:
       self.shipped_service += order_sz
-      heappush(self.eq, (self.time + self.t_transport, (Events.SHIP_SERVICE, order_sz)))
+      self.eq.push2(self.time + self.t_transport, Events.SHIP_SERVICE, order_sz)
 
   def policy_downstream(self):
     """Send repairable units to warehouse once we collected Q units."""
@@ -200,7 +229,7 @@ class InventoryModel(object):
     if order_sz > 0:
       self.depot.repair_stock -= order_sz
       self.shipped_repair += order_sz
-      heappush(self.eq, (self.time + 1, (Events.SHIP_REPAIR, order_sz)))
+      self.eq.push2(self.time + self.t_transport, Events.SHIP_REPAIR, order_sz)
 
   def sim_step(self):
     """Simulate one time step for all entities (in order). In the first sim
@@ -210,10 +239,10 @@ class InventoryModel(object):
       3) Ordering policies are checked.
     """
     # Get first event from queue
-    time, event = heappop(self.eq)
+    event = self.eq.pop()
 
     # Handle event and update time
-    self.time = time
+    self.time = event.time
     self.handle_event(event)
 
     # Check policies
@@ -221,22 +250,23 @@ class InventoryModel(object):
     self.policy_downstream()
 
     # Log data
-    self.depot.log()
-    self.warehouse.log()
+    self.depot.log(self.time)
+    self.warehouse.log(self.time)
 
   def add_cost_column(self, stock_info: pd.DataFrame):
     """Cost at certain time period"""
     # Reshape the event data such that each row consistutes one time period
-    event_data = self.event_data.pivot(index='time', columns='event', values='quantity')
+    event_data = self.event_data.pivot_table(index='time', columns='event', values='quantity', aggfunc='sum', fill_value=0)
 
     # Add order events to dataset and set NA values to 0
     stock_info = stock_info.merge(event_data, how="left", on="time")
-    stock_info = stock_info.fillna(value={'SHIP_REPAIR':0, 'SHIP_SERVICE':0})
 
     # Add cost of service order
+    # TODO(markkvdb): SHIP_SERVICE is now total order size and not n of batches
     stock_info['order_cost_service'] = stock_info.SHIP_SERVICE * self.c_service
 
     # Add cost of repair shpiment
+    # TODO(markkvdb): SHIP_REPAIR is now total order size and not n of batches
     stock_info['order_cost_repair'] = stock_info.SHIP_REPAIR * self.c_repair
     
     # Add holding cost serviceables
@@ -256,9 +286,10 @@ class InventoryModel(object):
   def create_output_df(self):
     """Collect inventory levels and positions of models."""
     depot_data = self.depot.log_data
-    depot_data['time'] = depot_data.index
     warehouse_data = self.warehouse.log_data
-    warehouse_data['time'] = warehouse_data.index
+
+    depot_data = depot_data.groupby('time').tail(1)
+    warehouse_data = warehouse_data.groupby('time').tail(1)
 
     stock_info = depot_data.merge(warehouse_data, how='inner', on='time',
                                   suffixes=('_depot', '_warehouse'))
@@ -300,8 +331,9 @@ class Depot(object):
     # Demand rate
     self.demand_rate = demand_rate
 
-    self.log_data = pd.DataFrame(columns=['service_stock', 'service_orders',
-    'service_back_orders', 'service_stock_position', 'repair_stock'])
+    self.log_data = pd.DataFrame(columns=['time', 'service_stock',
+    'service_orders','service_back_orders', 'service_stock_position',
+    'repair_stock'])
   
 
   def save(self):
@@ -355,13 +387,16 @@ class Depot(object):
     return self.repair_stock
 
 
-  def log(self):
+  def log(self, time: float):
     """Log relevant info of simulation."""
-    self.log_data = self.log_data.append({'service_stock': self.service_stock,
-                                          'service_orders': self.service_stock_order,
-                                          'service_back_orders': self.service_back_orders,
-                                          'service_stock_position': self.get_service_inventory_position(),
-                                          'repair_stock': self.repair_stock}, ignore_index=True)
+    self.log_data = self.log_data.append({
+      'time': time,
+      'service_stock': self.service_stock,
+      'service_orders': self.service_stock_order,
+      'service_back_orders': self.service_back_orders,
+      'service_stock_position': self.get_service_inventory_position(),
+      'repair_stock': self.repair_stock}, 
+      ignore_index=True)
 
 
 class Warehouse(object):
@@ -380,7 +415,7 @@ class Warehouse(object):
     self.repair_stock = 0
     self.repair_rate = repair_rate
 
-    self.log_data = pd.DataFrame(columns=['service_stock', 'repair_stock'])
+    self.log_data = pd.DataFrame(columns=['time', 'service_stock', 'repair_stock'])
 
   def save(self):
     """Output logger df to file"""
@@ -414,9 +449,10 @@ class Warehouse(object):
     """Create new repair job"""
     return (self.repair_rate, 1)
 
-  def log(self):
+  def log(self, time: float):
     """Log relevant info of simulation."""
-    self.log_data = self.log_data.append({'service_stock': self.service_stock, 
+    self.log_data = self.log_data.append({'time': time, 
+                                          'service_stock': self.service_stock, 
                                           'repair_stock': self.repair_stock}, 
                                           ignore_index=True)
 
