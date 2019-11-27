@@ -12,10 +12,13 @@ from heapq import heappush, heappop
 
 # All events in our model
 class Events(Enum):
-  DEMAND = auto()
-  REPAIR = auto()
-  SHIP_REPAIR = auto()
-  SHIP_SERVICE = auto()
+  DEMAND = 1
+  REPAIR = 2
+  SHIP_REPAIR = 3
+  SHIP_SERVICE = 4
+
+  def __lt__(self, other):
+    return self.value < other.value
 
 class Simulator(object):
   """The Simulator class initiates and updates all entities in the simulation
@@ -117,7 +120,7 @@ class InventoryModel(object):
     # Log event
     self.event_data = self.event_data.append(pd.Series({
       'time': self.time,
-      'event': event_type,
+      'event': event_type.name,
       'quantity': sz
     }), ignore_index=True)
 
@@ -154,7 +157,6 @@ class InventoryModel(object):
   def policy_upstream(self):
     """Order policy of the depot. Once inventory position drops below
     S, we initiate an order of sz Q."""
-
     # Place orders as long as inventory position is below S
     while (self.depot.get_service_inventory_position() < self.s_depot):
       self.depot.place_order(self.q_service)
@@ -168,12 +170,9 @@ class InventoryModel(object):
 
   def policy_downstream(self):
     """Send repairable units to warehouse once we collected Q units."""
-    n = 0
-    while (self.depot.repair_stock >= self.q_repair):
-      self.depot.repair_stock -= self.q_repair
-      n += 1
-
+    n = int(self.depot.repair_stock / self.q_repair)
     if n > 0:
+      self.depot.repair_stock -= n * self.q_repair
       heappush(self.eq, (self.time + 1, (Events.SHIP_REPAIR, n*self.q_repair)))
 
   def sim_step(self):
@@ -205,13 +204,13 @@ class InventoryModel(object):
 
     # Add order events to dataset and set NA values to 0
     stock_info = stock_info.merge(event_data, how="left", on="time")
-    stock_info = stock_info.fillna(value={'repair_shipment':0, 'service_order':0})
+    stock_info = stock_info.fillna(value={'SHIP_REPAIR':0, 'SHIP_SERVICE':0})
 
     # Add cost of service order
-    stock_info['order_cost_service'] = stock_info.service_orders * self.c_service
+    stock_info['order_cost_service'] = stock_info.SHIP_SERVICE * self.c_service
 
     # Add cost of repair shpiment
-    stock_info['order_cost_repair'] = stock_info.repair_shipment * self.c_repair
+    stock_info['order_cost_repair'] = stock_info.SHIP_REPAIR * self.c_repair
     
     # Add holding cost serviceables
     stock_info['hold_cost_serviceables'] = (stock_info.service_stock_depot.clip(lower=0) + stock_info.service_stock_warehouse.clip(lower=0)) * self.h_service

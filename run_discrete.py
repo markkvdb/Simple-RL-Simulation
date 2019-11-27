@@ -2,7 +2,7 @@
 # Date: 10-05-2019
 # Description: Simple reverse logistic simulation
 
-from .sim_components import Simulator
+from d_sim.sim_components import Simulator
 
 def main():
   # Common settings of the simulation

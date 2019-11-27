@@ -1,10 +1,10 @@
 import pandas as pd
 from itertools import product
 
-from model.sim_components import Simulator
+from .sim_components import Simulator
 
 
-def experiment_runner(settings, sim_time, time_delta):
+def experiment_runner(settings, sim_time):
   """
   Runs all model experiments with all different combinations of provided 
   settings values.
@@ -24,7 +24,7 @@ def experiment_runner(settings, sim_time, time_delta):
     settings_experiment = dict(zip(settings_names, settings_vals))
 
     # Run simulation
-    simulator = Simulator(time_delta, sim_time, settings_experiment)
+    simulator = Simulator(sim_time, settings_experiment)
     simulator.run()
             
     # Save output to master data frame
@@ -37,9 +37,6 @@ def experiment_runner(settings, sim_time, time_delta):
     sim_data['settings'] = ', '.join(setting_str)
 
     sim_dfs = sim_dfs.append(sim_data)
-
-  # Change time column
-  sim_dfs.time = sim_dfs.time * time_delta
   
   return(sim_dfs)
 
