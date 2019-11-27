@@ -6,7 +6,7 @@ from sys import exit
 import numpy as np
 import pandas as pd
 from tqdm import tqdm
-from enum import Enum
+from enum import Enum, auto
 from heapq import heappush, heappop
 
 
@@ -110,6 +110,14 @@ class InventoryModel(object):
     elif event_type == Events.SHIP_SERVICE:
       self._handle_event_shipservice(sz)
 
+    # Log event
+    self.event_data = self.event_data.append(pd.Series({
+      'time': self.time,
+      'event': event_type,
+      'quantity': sz
+    }), ignore_index=True)
+
+
   def _handle_event_demand(self, sz):
     # Update stocking levels
     self.depot.process_demand(sz)
@@ -170,8 +178,8 @@ class InventoryModel(object):
     time, event = heappop(self.eq)
 
     # Handle event and update time
-    self.handle_event(event)
     self.time = time
+    self.handle_event(event)
 
     # Check policies
     self.policy_upstream()
@@ -269,7 +277,7 @@ class Depot(object):
     """Demand for one timestep. Give time to next demand and size
     
     TODO implement random process."""
-    return (1, 1)
+    return (self.demand_rate, 1)
     
   def process_demand(self, sz):
     """Let demand arrive and processes both stocks."""
@@ -361,7 +369,7 @@ class Warehouse(object):
 
   def create_repair(self):
     """Create new repair job"""
-    return (0.5, 1)
+    return (self.repair_rate, 1)
 
   def log(self):
     """Log relevant info of simulation."""
