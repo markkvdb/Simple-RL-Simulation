@@ -134,13 +134,6 @@ class InventoryModel(object):
     self.s_depot = S_depot
     self.s_warehouse = S_warehouse
 
-    # Costs
-    self.c_service = 1
-    self.c_repair = 3
-    self.h_service = 0.02
-    self.b_service = 0.4
-    self.h_repair = 0.01
-
     # Transportation info
     self.shipped_service = 0
     self.shipped_repair = 0
@@ -181,32 +174,31 @@ class InventoryModel(object):
     self._new_demand()
 
   def _handle_event_repair(self, sz: int):
-    """Update stocking levels and (potentially_ create new repair event)"""
+    """Update stocking levels and (potentially create new repair event)"""
     self.warehouse.process_repair(sz)
     self._new_repair()
 
   def _handle_event_shiprepair(self, sz: int):
-    # Update repair stock of warehouse
-    self.shipped_repair -= sz
+    """Handle new shipment to warehouse of repairable items."""
     self.warehouse.get_repairables(sz)
     self._new_repair()
 
   def _handle_event_shipservice(self, sz: int):
-    # Handle serviceable order
+    """Handle new shipment to warehouse of serviceable items"""
     self.shipped_service -= sz
     self.depot.get_serviceables(sz)
 
   def _new_demand(self):
     """Create new demand (take from demand interarrival time distribution) and add to event queue."""
-    dt, new_sz = self.depot.create_demand()
-    self.eq.push2(self.time + dt, Events.DEMAND, new_sz)
+    dt, sz = self.depot.create_demand()
+    self.eq.push2(self.time + dt, Events.DEMAND, sz)
 
   def _new_repair(self):
     """Unlike demand, repairs can only be issued when repair stock is 
-    available at the warehouse."""
-    if self.warehouse.repair_stock > 0 and self.eq.find(Events.REPAIR) == 0:
-      dt, new_sz = self.warehouse.create_repair()
-      self.eq.push2(self.time + dt, Events.REPAIR, new_sz)
+    available at the warehouse and currently no item is being repaired."""
+    if self.warehouse.repair_stock > 0 and self.warehouse.items_in_repair == 0:
+      dt, sz = self.warehouse.create_repair()
+      self.eq.push2(self.time + dt, Events.REPAIR, sz)
 
   def policy_upstream(self):
     """Order policy of the depot. Once inventory position drops below
@@ -253,49 +245,25 @@ class InventoryModel(object):
     self.depot.log(self.time)
     self.warehouse.log(self.time)
 
-  def add_cost_column(self, stock_info: pd.DataFrame):
-    """Cost at certain time period"""
-    # Reshape the event data such that each row consistutes one time period
-    event_data = self.event_data.pivot_table(index='time', columns='event', values='quantity', aggfunc='sum', fill_value=0)
-
-    # Add order events to dataset and set NA values to 0
-    stock_info = stock_info.merge(event_data, how="left", on="time")
-
-    # Add cost of service order
-    # TODO(markkvdb): SHIP_SERVICE is now total order size and not n of batches
-    stock_info['order_cost_service'] = stock_info.SHIP_SERVICE * self.c_service
-
-    # Add cost of repair shpiment
-    # TODO(markkvdb): SHIP_REPAIR is now total order size and not n of batches
-    stock_info['order_cost_repair'] = stock_info.SHIP_REPAIR * self.c_repair
-    
-    # Add holding cost serviceables
-    stock_info['hold_cost_serviceables'] = (stock_info.service_stock_depot.clip(lower=0) + stock_info.service_stock_warehouse.clip(lower=0)) * self.h_service
-
-    # Add back order cost serviceables
-    stock_info['back_cost_serviceables'] = stock_info.service_back_orders * self.b_service
-
-    # Add holding cost repairables
-    stock_info['hold_cost_repairables'] = (stock_info.service_stock_depot + stock_info.service_stock_warehouse) * self.h_repair
-
-    # Combine all costs
-    stock_info['costs'] = stock_info.order_cost_service + stock_info.order_cost_repair + stock_info.hold_cost_serviceables + stock_info.back_cost_serviceables + stock_info.hold_cost_repairables
-
-    return stock_info
-
   def create_output_df(self):
     """Collect inventory levels and positions of models."""
-    depot_data = self.depot.log_data
-    warehouse_data = self.warehouse.log_data
+    # Sometimes multiple events happen at the same time period. We only want to
+    # evaluate the cost at the end of the time period. Hence we group the 
+    # data by time and only keep the last observation of time.
+    depot_data = (self.depot.log_data
+      .groupby('time')
+      .tail(1))
+    warehouse_data = (self.warehouse.log_data
+      .groupby('time')
+      .tail(1))
 
-    depot_data = depot_data.groupby('time').tail(1)
-    warehouse_data = warehouse_data.groupby('time').tail(1)
-
+    # Merge info of both locations
     stock_info = depot_data.merge(warehouse_data, how='inner', on='time',
                                   suffixes=('_depot', '_warehouse'))
 
-    # Add cost per unit time
-    stock_info = self.add_cost_column(stock_info)
+    # And add the event data
+    event_data = self.event_data.pivot_table(index='time', columns='event', values='quantity', aggfunc='sum', fill_value=0)
+    stock_info = stock_info.merge(event_data, how='inner', on='time')
 
     return stock_info
   
@@ -407,6 +375,7 @@ class Warehouse(object):
     service_stock: Net stock of servicable units.
     repair_stock: Net stock of repairable units.
     out_server: Server to send units to.
+    items_in_repair: number of items currently in repair shop.
   """
 
   def __init__(self, repair_rate: float, init_service_stock: int):
@@ -414,11 +383,12 @@ class Warehouse(object):
     self.service_stock = init_service_stock
     self.repair_stock = 0
     self.repair_rate = repair_rate
+    self.items_in_repair = 0
 
-    self.log_data = pd.DataFrame(columns=['time', 'service_stock', 'repair_stock'])
+    self.log_data = pd.DataFrame(columns=['time', 'service_stock', 'repair_stock', 'items_in_repair'])
 
   def save(self):
-    """Output logger df to file"""
+    """Output logger df to file."""
     self.log_data.to_csv('output/warehouse_output.csv')
 
   def get_repairables(self, sz: int):
@@ -442,17 +412,19 @@ class Warehouse(object):
 
   def process_repair(self, sz: int):
     """Handle repair station at time step."""
-    self.repair_stock -= sz
+    self.items_in_repair -= sz
     self.service_stock += sz
 
   def create_repair(self):
     """Create new repair job"""
+    self.items_in_repair += 1
     return (self.repair_rate, 1)
 
   def log(self, time: float):
     """Log relevant info of simulation."""
     self.log_data = self.log_data.append({'time': time, 
                                           'service_stock': self.service_stock, 
-                                          'repair_stock': self.repair_stock}, 
+                                          'repair_stock': self.repair_stock,
+                                          'items_in_repair':self.items_in_repair}, 
                                           ignore_index=True)
 
