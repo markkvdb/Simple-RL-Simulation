@@ -180,6 +180,7 @@ class InventoryModel(object):
 
   def _handle_event_shiprepair(self, sz: int):
     """Handle new shipment to warehouse of repairable items."""
+    self.shipped_repair -= sz
     self.warehouse.get_repairables(sz)
     self._new_repair()
 
@@ -218,6 +219,7 @@ class InventoryModel(object):
     """Send repairable units to warehouse once we collected Q units."""
     n = int(self.depot.repair_stock / self.q_repair)
     order_sz = n * self.q_repair
+
     if order_sz > 0:
       self.depot.repair_stock -= order_sz
       self.shipped_repair += order_sz
@@ -308,14 +310,12 @@ class Depot(object):
     """Output log file to CSV"""
     self.log_data.to_csv('output/depot_output.csv')
 
-
   def create_demand(self):
     """Demand for one timestep. Give time to next demand and size
     
     TODO implement random process."""
     return (self.demand_rate, 1)
     
-
   def process_demand(self, sz: int):
     """Let demand arrive and processes both stocks."""
 
@@ -328,11 +328,9 @@ class Depot(object):
     else:
       self.service_stock -= sz
 
-
   def place_order(self, sz: int):
     """Make an order of sz Q"""
     self.service_stock_order += sz
-
 
   def get_serviceables(self, sz: int):
     """Process incoming serviceables. Note that stocking levels of the 
@@ -344,16 +342,13 @@ class Depot(object):
 
     # Remaining stock goes to inventory
     self.service_stock += sz - back_sz
-    self.service_stock_order -= sz - back_sz
-
+    self.service_stock_order -= sz
 
   def get_service_inventory_position(self):
     return self.service_stock + self.service_stock_order - self.service_back_orders
 
-
   def get_repair_inventory_position(self):
     return self.repair_stock
-
 
   def log(self, time: float):
     """Log relevant info of simulation."""
@@ -417,6 +412,7 @@ class Warehouse(object):
 
   def create_repair(self):
     """Create new repair job"""
+    self.repair_stock -= 1
     self.items_in_repair += 1
     return (self.repair_rate, 1)
 
