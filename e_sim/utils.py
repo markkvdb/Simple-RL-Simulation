@@ -1,11 +1,12 @@
 from fnmatch import fnmatch
 from os import listdir
+from functools import partial
 
 import numpy as np
 import pandas as pd
 from itertools import product
 from tqdm import tqdm
-from joblib import Parallel, delayed
+from multiprocessing import Pool
 
 from .sim_components import Simulator
 
@@ -63,8 +64,8 @@ def settings_to_fn(settings_experiment: dict, agg: bool = False):
   return fn
 
 
-def create_experiment(settings_names: list, 
-                      settings_vals: list,
+def create_experiment(settings_vals: list,
+                      settings_names: list, 
                       sim_time: float,
                       save_sim: bool = True):
   """Compute single experiment and save output to csv."""
@@ -111,11 +112,21 @@ def experiment_runner_par(settings: dict,
   settings_names = sorted(settings)
   settings_comb = list(product(*(settings[name] for name in settings_names)))
 
+  p_create_experiment = partial(create_experiment,
+                                settings_names=settings_names,
+                                sim_time=sim_time,
+                                save_sim=save_sim)
+
   # Run experiment for every combination
-  with Parallel(n_jobs=threads) as parallel:
-      fns = tqdm(parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time, save_sim) for settings_vals in settings_comb), total=len(settings_comb))
-  
-  return fns
+  dfs = [None] * len(settings_comb)
+
+  with Pool(threads) as p:
+    with tqdm(total=len(settings_comb)) as pbar:
+      for i, df in tqdm(enumerate(p.imap_unordered(p_create_experiment, iter(settings_comb)))):
+        pbar.update()
+        dfs[i] = df
+
+  return dfs
 
 def agg_data(sim_data: pd.DataFrame, keep: bool = False):
   """Compute mean number of shipments (repair and service) and the 

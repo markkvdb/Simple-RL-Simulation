@@ -9,18 +9,19 @@ from e_sim.utils import experiment_runner_par
 
 def main():
   # Common settings of the simulation
-  sim_time = 10
+  sim_time = 500
 
   # Settings dict
-  settings = {}
-  settings['demand_rate'] = [1]
-  settings['repair_rate'] = [0.5]
-  settings['Q_service'] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  settings['Q_repair'] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
-  settings['S_depot'] = [1]
-  settings['S_warehouse'] = [2]
-  settings['init_stock_depot'] = [2, 4]
-  settings['init_stock_warehouse'] = [2, 8]
+  settings = {
+    'demand_rate': [1],
+    'repair_rate': [0.5],
+    'Q_service': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    'Q_repair': [1, 2, 3, 4, 5, 6, 7, 8, 9, 10],
+    'S_depot': [1],
+    'S_warehouse': [2],
+    'init_stock_depot': [2, 4],
+    'init_stock_warehouse': [2, 8]
+  }
 
   # Run all combinations of experiments
   dfs_agg = experiment_runner_par(settings, sim_time, 6, False)
