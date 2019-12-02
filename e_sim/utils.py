@@ -1,6 +1,7 @@
 import numpy as np
 import pandas as pd
 from itertools import product
+from tqdm import tqdm
 
 from .sim_components import Simulator
 
@@ -24,6 +25,7 @@ def experiment_runner(settings, sim_time):
   sim_dfs = pd.DataFrame()
 
   # Run experiment for every combination
+  pbar = tqdm(total=len(settings_comb))
   for settings_vals in settings_comb:
     settings_experiment = dict(zip(settings_names, settings_vals))
 
@@ -41,11 +43,53 @@ def experiment_runner(settings, sim_time):
     sim_data['settings'] = ', '.join(setting_str)
 
     sim_dfs = sim_dfs.append(sim_data)
+    pbar.update(1)
+  
+  pbar.close()
   
   return(sim_dfs)
 
+def agg_data(sim_data: pd.DataFrame):
+  """Compute mean number of shipments (repair and service) and the 
+  avg. holding and backorder levels for the simulation."""
+  # Obtain batch size variables
+  q_service = sim_data.Q_service.unique()[0]
+  q_repair = sim_data.Q_repair.unique()[0]
 
-def compute_avg_cost(sim_data: pd.DataFrame, costs: dict):
+  # Total simulation time
+  sim_time = sim_data.time.iloc[-1]
+
+  # Inventory holding cost
+  total_stock = sim_data.init_stock_depot.unique()[0] + sim_data.init_stock_warehouse.unique()[0]
+
+  # Average number of service shipments per unit of time
+  total_service_shipments = (np.sum(sim_data.SHIP_SERVICE) / q_service) / sim_time
+
+  # Average number of repair shipments per unit of time
+  total_repair_shipments = (np.sum(sim_data.SHIP_REPAIR) / q_repair) / sim_time
+
+  # Avg number of back orders per unit of time
+  # First get how long the simulation was in a certain state by differencing
+  # the time column.
+  back_order_times = np.diff(sim_data.time)
+
+  # The total back-order cost is the sum of the multiplication of the costs
+  # at certain times times the time the simulation was in this state.
+  avg_back_order_level = np.sum(np.multiply(back_order_times,
+                                            sim_data.service_back_orders[:-1]))
+  avg_back_order_level /= sim_time
+
+  df_return = pd.DataFrame({
+    'avg_stock': total_stock,
+    'avg_backorder': avg_back_order_level,
+    'service_shipments': total_service_shipments,
+    'repair_shipments': total_repair_shipments
+  }, index=[0])
+    
+  return df_return
+
+
+def compute_avg_cost(agg_data: pd.DataFrame, costs: dict):
     """Compute the average cost over the entire simulation period.
     
     The cost consists of three parts: inventory holding costs, set-up costs 
@@ -59,43 +103,25 @@ def compute_avg_cost(sim_data: pd.DataFrame, costs: dict):
     state.
 
     Args:
-      event_data: dataframe containing demand, repair and shipments events for
-        all observed time periods.
-      stock_data: inventory position and levels at sites for all observed time    periods.
+      agg_data: dataframe containing aggregated info about the simulation
+      costs: dictionary with all cost variables.
     
     Returns:
       Average cost over the entire simulation horizon.
     """
+    # Compute costs
+    cost_holding = agg_data['avg_stock'] * costs['holding']
+    cost_backorder = agg_data['avg_backorder'] * costs['backorder']
+    cost_service_ship = agg_data['service_shipments'] * costs['c_service']
+    cost_repair_ship = agg_data['repair_shipments'] * costs['c_repair']
 
-    # Obtain batch size variables
-    q_service = sim_data.Q_service.unique()[0]
-    q_repair = sim_data.Q_repair.unique()[0]
+    df_results = pd.DataFrame({
+      'holding_cost': cost_holding,
+      'back_order_cost': cost_backorder,
+      'setup_repair_cost': cost_repair_ship,
+      'setup_service_cost': cost_service_ship,
+      'average_cost': cost_holding + cost_backorder + cost_repair_ship + cost_service_ship
+    })
 
-    # Inventory holding cost
-    total_stock = sim_data.init_stock_depot.unique()[0] + sim_data.init_stock_warehouse.unique()[0]
-    cost_holding = total_stock * costs['holding']
-
-    # Set-up cost of serviceable items
-    cost_setup_service = (np.sum(sim_data.SHIP_SERVICE) / q_service) * costs['c_service']
-
-    # Set-up cost of repairable shipments
-    cost_setup_repair = (np.sum(sim_data.SHIP_REPAIR) / q_repair) * costs['c_repair']
-
-    # First get how long the simulation was in a certain state by differencing
-    # the time column.
-    back_order_times = np.diff(sim_data.time)
-
-    # Back order costs in a specific time are computed as back-order level 
-    # multiplied by the back-order cost per item per unit of time.
-    back_order_cost = sim_data.service_back_orders * costs['back_order']
-
-    # The total back-order cost is the sum of the multiplication of the costs
-    # at certain times times the time the simulation was in this state.
-    back_order_cost = np.sum(np.multiply(back_order_times, back_order_cost[:-1]))
-
-    sim_time = sim_data.time.iloc[-1]
-
-    avg_cost = (cost_setup_repair + cost_setup_service + back_order_cost + cost_holding) / sim_time
-
-    return avg_cost
+    return df_results
 

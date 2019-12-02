@@ -15,9 +15,9 @@ def main():
   settings['repair_rate'] = [0.5]
   settings['Q_service'] = [1,2]
   settings['Q_repair'] = [2, 4]
-  settings['S_depot'] = [2]
+  settings['S_depot'] = [1]
   settings['S_warehouse'] = [2]
-  settings['init_stock_depot'] = [4]
+  settings['init_stock_depot'] = [2]
   settings['init_stock_warehouse'] = [2, 8]
   settings['b_cost'] = 0.4
   settings['h_cost'] = 0.02
