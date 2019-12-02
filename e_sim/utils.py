@@ -2,6 +2,7 @@ import numpy as np
 import pandas as pd
 from itertools import product
 from tqdm import tqdm
+from joblib import Parallel, delayed
 
 from .sim_components import Simulator
 
@@ -47,7 +48,68 @@ def experiment_runner(settings, sim_time):
   
   pbar.close()
   
-  return(sim_dfs)
+  return sim_dfs
+
+
+def settings_to_fn(settings_experiment: dict):
+  """Turn experiment settings to file name"""
+  fn = ['{}={}'.format(name, value) for name, value in settings_experiment.items()]
+  fn = '-'.join(fn)
+  fn = f'{fn}.csv'
+
+  return fn
+
+
+def create_experiment(settings_names: list, 
+                      settings_vals: list,
+                      sim_time: float,
+                      save_sim: bool = True):
+  """Compute single experiment and save output to csv."""
+  # Create experiment dictionary
+  settings_experiment = dict(zip(settings_names, settings_vals))
+
+  simulator = Simulator(sim_time, settings_experiment)
+  simulator.run()
+        
+  # Add setting columns
+  sim_data = simulator.create_output_df()
+  for setting, value in settings_experiment.items():
+    sim_data[setting] = value
+
+  # Get aggregated info
+  df_agg = agg_data(sim_data)
+  
+  # Save data as CSV
+  fn = settings_to_fn(settings_experiment)
+  fn_agg = f'agg_{fn}'
+  if save_sim: sim_data.to_csv(fn)
+  df_agg.to_csv(fn_agg)
+  
+  return fn_agg
+
+
+def experiment_runner_par(settings: dict, sim_time: float, threads: int = 2):
+  """Runs all model experiments with all different combinations of provided 
+  settings values.
+
+  Keyword arguments:
+    settings -- Dictionary with all settings
+    sim_time -- Number of units of time to simulate
+    threads -- Number of jobs to perform in parallel
+
+  Returns:
+    List with all written CSV files
+  """
+  
+  # Create all possible combinations of setting values
+  settings_names = sorted(settings)
+  settings_comb = list(product(*(settings[name] for name in settings_names)))
+
+  # Run experiment for every combination
+  with Parallel(n_jobs=2) as parallel:
+      fns = parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time) for settings_vals in settings_comb)
+  
+  return fns
 
 def agg_data(sim_data: pd.DataFrame):
   """Compute mean number of shipments (repair and service) and the 

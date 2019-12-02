@@ -76,7 +76,6 @@ class Simulator(object):
 
   def __init__(self, sim_time, settings):
     """Initialise Simulator class"""
-
     # Time of simulation attributes
     self.sim_time = sim_time
 
