@@ -1,3 +1,6 @@
+from fnmatch import fnmatch
+from os import listdir
+
 import numpy as np
 import pandas as pd
 from itertools import product
@@ -51,11 +54,12 @@ def experiment_runner(settings, sim_time):
   return sim_dfs
 
 
-def settings_to_fn(settings_experiment: dict):
+def settings_to_fn(settings_experiment: dict, agg: bool = False):
   """Turn experiment settings to file name"""
   fn = ['{}={}'.format(name, value) for name, value in settings_experiment.items()]
   fn = '-'.join(fn)
-  fn = f'{fn}.csv'
+  if agg: fn = f'output/experiments/agg_{fn}.csv'
+  else: fn = f'output/experiments/{fn}.csv'
 
   return fn
 
@@ -66,29 +70,31 @@ def create_experiment(settings_names: list,
                       save_sim: bool = True):
   """Compute single experiment and save output to csv."""
   # Create experiment dictionary
-  settings_experiment = dict(zip(settings_names, settings_vals))
+  settings = dict(zip(settings_names, settings_vals))
 
-  simulator = Simulator(sim_time, settings_experiment)
+  simulator = Simulator(sim_time, settings)
   simulator.run()
         
   # Add setting columns
   sim_data = simulator.create_output_df()
-  for setting, value in settings_experiment.items():
+  for setting, value in settings.items():
     sim_data[setting] = value
 
   # Get aggregated info
-  df_agg = agg_data(sim_data)
+  df_agg = sim_data.groupby(settings_names).apply(agg_data)
+  df_agg = df_agg.reset_index()
   
   # Save data as CSV
-  fn = settings_to_fn(settings_experiment)
-  fn_agg = f'agg_{fn}'
-  if save_sim: sim_data.to_csv(fn)
-  df_agg.to_csv(fn_agg)
+  fn = settings_to_fn(settings)
+  if save_sim: sim_data.to_csv(fn, index=False)
   
-  return fn_agg
+  return df_agg
 
 
-def experiment_runner_par(settings: dict, sim_time: float, threads: int = 2):
+def experiment_runner_par(settings: dict, 
+                          sim_time: float, 
+                          threads: int = 2,
+                          save_sim: bool = True):
   """Runs all model experiments with all different combinations of provided 
   settings values.
 
@@ -106,12 +112,12 @@ def experiment_runner_par(settings: dict, sim_time: float, threads: int = 2):
   settings_comb = list(product(*(settings[name] for name in settings_names)))
 
   # Run experiment for every combination
-  with Parallel(n_jobs=2) as parallel:
-      fns = parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time) for settings_vals in settings_comb)
+  with Parallel(n_jobs=threads) as parallel:
+      fns = parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time, save_sim) for settings_vals in settings_comb)
   
   return fns
 
-def agg_data(sim_data: pd.DataFrame):
+def agg_data(sim_data: pd.DataFrame, keep: bool = False):
   """Compute mean number of shipments (repair and service) and the 
   avg. holding and backorder levels for the simulation."""
   # Obtain batch size variables
@@ -187,3 +193,7 @@ def compute_avg_cost(agg_data: pd.DataFrame, costs: dict):
 
     return df_results
 
+
+def get_sim_fns(path: str):
+  """Get all aggregate simulation files of all experiments."""
+  return [file for file in listdir(path) if fnmatch(file, 'agg_*')]
