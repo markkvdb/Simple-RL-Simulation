@@ -6,7 +6,7 @@ Started implement the event-based simulation. Things left:
 
 - [x] File log file using event `enum`.
 - [x] Create initialisation for simulation so that event_queue is filled.
-- [ ] Repair process is now implemented with single server. Repair rate does not depend on the number of available items.
+- [x] Repair process is now implemented with single server. Repair rate does not depend on the number of available items.
 - [x] Items in transport now have a separete variable member in the `Model` class.
 - [ ] Order level of serviceable items at the depot is not lowered when shipment is initiated but when order arrives. Does this make sense?
 - [x] Plots are now constructed by connecting points, but should have L shape instead of line.
@@ -16,4 +16,9 @@ Started implement the event-based simulation. Things left:
 
 Plots can be solved using `plt.step`
 
-- [ ] Find model settings which will give back-orders
+- [x] Find model settings which will give back-orders
+
+## Note for self (02-12-2019)
+
+- [ ] Bug in experiment_runner which does not store results anymore when there is an event that never happes in the simulation.
+- [ ] Progress bar does not support multithreading yet.
