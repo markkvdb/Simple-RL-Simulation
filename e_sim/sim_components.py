@@ -74,10 +74,11 @@ class Simulator(object):
     initialise: 
   """
 
-  def __init__(self, sim_time, settings):
+  def __init__(self, sim_time: float, settings: dict, seed: int = 0):
     """Initialise Simulator class"""
     # Time of simulation attributes
     self.sim_time = sim_time
+    self.seed = seed
 
     # Inventory model
     self.model = InventoryModel(Q_service = settings['Q_service'], 
@@ -87,7 +88,8 @@ class Simulator(object):
                                 demand_rate = settings['demand_rate'],
                                 repair_rate = settings['repair_rate'],
                                 init_stock_depot = settings['init_stock_depot'],
-                                init_stock_warehouse = settings['init_stock_warehouse']
+                                init_stock_warehouse = settings['init_stock_warehouse'],
+                                seed = seed
     )
 
   def run(self):
@@ -121,11 +123,15 @@ class InventoryModel(object):
                demand_rate: float, 
                repair_rate: float,
                init_stock_depot: int, 
-               init_stock_warehouse: int):
+               init_stock_warehouse: int,
+               seed: int):
     """Initialise InventoryModel class."""
+    # Random seed
+    self.seed = seed
+
     # Entities of model
-    self.depot = Depot(demand_rate, init_stock_depot)
-    self.warehouse = Warehouse(repair_rate, init_stock_warehouse)
+    self.depot = Depot(demand_rate, init_stock_depot, seed)
+    self.warehouse = Warehouse(repair_rate, init_stock_warehouse, seed)
 
     # Policy settings
     self.q_service = Q_service
@@ -287,8 +293,9 @@ class Depot(object):
     out_server: Server to send units to.
   """
 
-  def __init__(self, demand_rate: float, init_service_stock: int):
+  def __init__(self, demand_rate: float, init_service_stock: int, seed: int):
     """Initialise Depot class."""
+    self.seed = seed
 
     # Inventory levels
     self.service_stock = init_service_stock
@@ -372,8 +379,10 @@ class Warehouse(object):
     items_in_repair: number of items currently in repair shop.
   """
 
-  def __init__(self, repair_rate: float, init_service_stock: int):
+  def __init__(self, repair_rate: float, init_service_stock: int, seed: int):
     """Initialise Warehouse class."""
+    self.seed = seed
+
     self.service_stock = init_service_stock
     self.repair_stock = 0
     self.repair_rate = repair_rate

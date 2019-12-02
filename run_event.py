@@ -9,7 +9,7 @@ from e_sim.utils import experiment_runner_par
 
 def main():
   # Common settings of the simulation
-  sim_time = 1000
+  sim_time = 10
 
   # Settings dict
   settings = {}
@@ -25,8 +25,8 @@ def main():
   # Run all combinations of experiments
   dfs_agg = experiment_runner_par(settings, sim_time, 6, False)
 
-  df_agg = pd.concat(dfs_agg, ignore_index=True)
-  df_agg.to_csv('output/experiments/sim_data_agg.csv')
+  df_agg = pd.concat(dfs_agg, ignore_index=True, sort=True)
+  df_agg.to_csv('output/experiments/sim_data_agg.csv', index=False)
 
 if __name__ == "__main__":
   main()

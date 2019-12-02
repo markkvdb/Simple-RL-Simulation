@@ -9,7 +9,6 @@ from joblib import Parallel, delayed
 
 from .sim_components import Simulator
 
-
 def experiment_runner(settings, sim_time):
   """Runs all model experiments with all different combinations of provided 
   settings values.
@@ -80,10 +79,10 @@ def create_experiment(settings_names: list,
   for setting, value in settings.items():
     sim_data[setting] = value
 
-  # Get aggregated info
-  df_agg = sim_data.groupby(settings_names).apply(agg_data)
+  # Get aggregated infO
+  df_agg = sim_data.groupby(list(settings.keys())).apply(agg_data)
   df_agg = df_agg.reset_index()
-  
+
   # Save data as CSV
   fn = settings_to_fn(settings)
   if save_sim: sim_data.to_csv(fn, index=False)
@@ -102,9 +101,10 @@ def experiment_runner_par(settings: dict,
     settings -- Dictionary with all settings
     sim_time -- Number of units of time to simulate
     threads -- Number of jobs to perform in parallel
+    save_sim -- Should all output of the simulations be saved
 
   Returns:
-    List with all written CSV files
+    List with aggregated output DataFrames
   """
   
   # Create all possible combinations of setting values
@@ -113,46 +113,53 @@ def experiment_runner_par(settings: dict,
 
   # Run experiment for every combination
   with Parallel(n_jobs=threads) as parallel:
-      fns = parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time, save_sim) for settings_vals in settings_comb)
+      fns = tqdm(parallel(delayed(create_experiment)(settings_names, settings_vals, sim_time, save_sim) for settings_vals in settings_comb), total=len(settings_comb))
   
   return fns
 
 def agg_data(sim_data: pd.DataFrame, keep: bool = False):
   """Compute mean number of shipments (repair and service) and the 
   avg. holding and backorder levels for the simulation."""
-  # Obtain batch size variables
-  q_service = sim_data.Q_service.unique()[0]
-  q_repair = sim_data.Q_repair.unique()[0]
+  try:
+    # Obtain batch size variables
+    q_service = sim_data.Q_service.unique()[0]
+    q_repair = sim_data.Q_repair.unique()[0]
 
-  # Total simulation time
-  sim_time = sim_data.time.iloc[-1]
+    # Total simulation time
+    sim_time = sim_data.time.iloc[-1]
 
-  # Inventory holding cost
-  total_stock = sim_data.init_stock_depot.unique()[0] + sim_data.init_stock_warehouse.unique()[0]
+    # Inventory holding cost
+    total_stock = sim_data.init_stock_depot.unique()[0] + sim_data.init_stock_warehouse.unique()[0]
 
-  # Average number of service shipments per unit of time
-  total_service_shipments = (np.sum(sim_data.SHIP_SERVICE) / q_service) / sim_time
+    # Average number of service shipments per unit of time
+    total_service_shipments = (np.sum(sim_data.SHIP_SERVICE) / q_service) / sim_time
 
-  # Average number of repair shipments per unit of time
-  total_repair_shipments = (np.sum(sim_data.SHIP_REPAIR) / q_repair) / sim_time
+    # Average number of repair shipments per unit of time
+    total_repair_shipments = (np.sum(sim_data.SHIP_REPAIR) / q_repair) / sim_time
 
-  # Avg number of back orders per unit of time
-  # First get how long the simulation was in a certain state by differencing
-  # the time column.
-  back_order_times = np.diff(sim_data.time)
+    # Avg number of back orders per unit of time
+    # First get how long the simulation was in a certain state by differencing
+    # the time column.
+    back_order_times = np.diff(sim_data.time)
 
-  # The total back-order cost is the sum of the multiplication of the costs
-  # at certain times times the time the simulation was in this state.
-  avg_back_order_level = np.sum(np.multiply(back_order_times,
-                                            sim_data.service_back_orders[:-1]))
-  avg_back_order_level /= sim_time
+    # The total back-order cost is the sum of the multiplication of the costs
+    # at certain times times the time the simulation was in this state.
+    avg_back_order_level = np.sum(np.multiply(back_order_times,
+                                              sim_data.service_back_orders[:-1]))
+    avg_back_order_level /= sim_time
 
-  df_return = pd.DataFrame({
-    'avg_stock': total_stock,
-    'avg_backorder': avg_back_order_level,
-    'service_shipments': total_service_shipments,
-    'repair_shipments': total_repair_shipments
-  }, index=[0])
+    df_return = pd.DataFrame({
+      'avg_stock': total_stock,
+      'avg_backorder': avg_back_order_level,
+      'service_shipments': total_service_shipments,
+      'repair_shipments': total_repair_shipments
+    }, index=[0])
+
+  except AttributeError:
+    df_return = pd.DataFrame(columns=['avg_stock',
+                                      'avg_backorder',
+                                      'service_shipments',
+                                      'repair_shipments'])
     
   return df_return
 
