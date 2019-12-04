@@ -1,14 +1,18 @@
 from fnmatch import fnmatch
 from os import listdir
 from functools import partial
+from multiprocessing import Pool
 
 import numpy as np
 import pandas as pd
 from itertools import product
 from tqdm import tqdm
-from multiprocessing import Pool
+import matplotlib.pyplot as plt
+import seaborn as sns
 
 from .sim_components import Simulator
+
+sns.set(style="ticks", color_codes=True)
 
 def experiment_runner(settings, sim_time):
   """Runs all model experiments with all different combinations of provided 
@@ -225,6 +229,7 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
   """
   # Create empty dataframe to store results
   df_all = pd.DataFrame(columns=['cost_par',
+                                 'cost_par_vals',
                                  'holding', 
                                  'backorder', 
                                  'c_service',
@@ -240,7 +245,10 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
   }
 
   for cost_par_sen, cost_val_sen in costs_sen.items():
-    df = pd.DataFrame({'cost_par': cost_par_sen}, index=np.arange(0, len(cost_val_sen)))
+    df = pd.DataFrame({
+      'cost_par': cost_par_sen,
+      'cost_par_vals': cost_val_sen
+      }, index=np.arange(0, len(cost_val_sen)))
 
     for cost_par, cost_val in costs.items():
       val = float(agg_data[cost_map[cost_par]])
@@ -261,7 +269,14 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
   })
 
   return df_all
-    
+
+
+def sensitivity_plot(df_sens: pd.DataFrame):
+  g = sns.FacetGrid(df_sens, row='cost_par', aspect=1.2, sharey=True, sharex=False)
+  g = g.map(plt.plot, 'cost_par_vals', 'average_cost').add_legend().set_axis_labels('parameter', 'Average cost')
+
+  return g
+
 
 def get_sim_fns(path: str):
   """Get all aggregate simulation files of all experiments."""
