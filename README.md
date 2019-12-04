@@ -25,5 +25,5 @@ Plots can be solved using `plt.step`
 
 ## Note for self (04-12-2019)
 
-- [ ] Add sensitivity analysis to the cost parameters.
+- [x] Add sensitivity analysis to the cost parameters.
 - [ ] 

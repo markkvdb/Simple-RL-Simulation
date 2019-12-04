@@ -224,12 +224,12 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
       sensitivity analysis.
   """
   # Create empty dataframe to store results
-  df = pd.DataFrame(columns=['cost_par',
-                             'holding', 
-                             'backorder', 
-                             'c_service',
-                             'c_repair',
-                             'average_cost'])
+  df_all = pd.DataFrame(columns=['cost_par',
+                                 'holding', 
+                                 'backorder', 
+                                 'c_service',
+                                 'c_repair',
+                                 'average_cost'])
 
   # Map cost parameter to simulation component
   cost_map = {
@@ -239,30 +239,28 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
     'c_repair': 'repair_shipments'
   }
 
-  for cost_par_sen, cost_val_sen in costs_sen:
-    df_dict = {'cost_par': cost_par_sen}
-    total_cost = 0
+  for cost_par_sen, cost_val_sen in costs_sen.items():
+    df = pd.DataFrame({'cost_par': cost_par_sen}, index=np.arange(0, len(cost_val_sen)))
 
-    for cost_par, cost_val in costs:
+    for cost_par, cost_val in costs.items():
+      val = float(agg_data[cost_map[cost_par]])
       if cost_par == cost_par_sen:
-        df_dict[cost_par] = agg_data[cost_map[cost_par]] * cost_val_sen
+        df[cost_par] = cost_val_sen * val
       else:
-        df_dict[cost_par] = agg_data[cost_map[cost_par]] * cost_val
-      
-      total_cost += df_dict[cost_par]
+        df[cost_par] = val * cost_val
     
-    df_dict['average_cost'] = total_cost
-    df = df.append(df.DataFrame(df_dict))
+    df['average_cost'] = df['holding'] + df['backorder'] + df['c_service'] + df['c_repair']
+    df_all = df_all.append(df)
   
   # Rename columns to match with other analysis
-  df = df.rename(columns={
+  df_all = df_all.rename(columns={
     'holding': 'holding_cost',
     'backorder': 'back_order_cost',
     'c_service': 'setup_service_cost',
     'c_repair': 'setup_repair_cost'
   })
 
-  return df
+  return df_all
     
 
 def get_sim_fns(path: str):
