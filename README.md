@@ -20,5 +20,10 @@ Plots can be solved using `plt.step`
 
 ## Note for self (02-12-2019)
 
-- [ ] Bug in experiment_runner which does not store results anymore when there is an event that never happes in the simulation.
-- [ ] Progress bar does not support multithreading yet.
+- [x] Bug in experiment_runner which does not store results anymore when there is an event that never happes in the simulation.
+- [x] Progress bar does not support multithreading yet.
+
+## Note for self (04-12-2019)
+
+- [ ] Add sensitivity analysis to the cost parameters.
+- [ ] 

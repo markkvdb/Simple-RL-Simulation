@@ -176,41 +176,94 @@ def agg_data(sim_data: pd.DataFrame, keep: bool = False):
 
 
 def compute_avg_cost(agg_data: pd.DataFrame, costs: dict):
-    """Compute the average cost over the entire simulation period.
+  """Compute the average cost over the entire simulation period.
+  
+  The cost consists of three parts: inventory holding costs, set-up costs 
+  for shipments and back-ordering cost. 
+  
+  The inventory holding costs are the same since we assume that items can be 
+  used indefinetely and the holding cost are identical no matter what states 
+  items are in. The set-up cost is the sum of all shipments divided by the 
+  simulation time. Finally the back-ordering cost is the back-order cost at
+  specific times multiplied by the amount of time the simulation was in this
+  state.
+
+  Args:
+    agg_data: dataframe containing aggregated info about the simulation
+    costs: dictionary with all cost variables.
+  
+  Returns:
+    Average cost over the entire simulation horizon.
+  """
+  # Compute costs
+  cost_holding = agg_data['avg_stock'] * costs['holding']
+  cost_backorder = agg_data['avg_backorder'] * costs['backorder']
+  cost_service_ship = agg_data['service_shipments'] * costs['c_service']
+  cost_repair_ship = agg_data['repair_shipments'] * costs['c_repair']
+
+  df_results = pd.DataFrame({
+    'holding_cost': cost_holding,
+    'back_order_cost': cost_backorder,
+    'setup_repair_cost': cost_repair_ship,
+    'setup_service_cost': cost_service_ship,
+    'average_cost': cost_holding + cost_backorder + cost_repair_ship + cost_service_ship
+  })
+
+  return df_results
+
+def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
+  """Compute cost for all values of the cost parameters.
+  
+  The costs dictionary contains all reference cost parameters and costs_sen
+  contains the cost parameter values considered for the sensitivity analysis.
+  
+  Args:
+    agg_data: dataframe containing aggregated info about the simulation
+    costs: dictionary with all cost variables.
+    costs_sen: dictionary with np.arrays of cost parameter values for the
+      sensitivity analysis.
+  """
+  # Create empty dataframe to store results
+  df = pd.DataFrame(columns=['cost_par',
+                             'holding', 
+                             'backorder', 
+                             'c_service',
+                             'c_repair',
+                             'average_cost'])
+
+  # Map cost parameter to simulation component
+  cost_map = {
+    'holding': 'avg_stock',
+    'backorder': 'avg_backorder',
+    'c_service': 'service_shipments',
+    'c_repair': 'repair_shipments'
+  }
+
+  for cost_par_sen, cost_val_sen in costs_sen:
+    df_dict = {'cost_par': cost_par_sen}
+    total_cost = 0
+
+    for cost_par, cost_val in costs:
+      if cost_par == cost_par_sen:
+        df_dict[cost_par] = agg_data[cost_map[cost_par]] * cost_val_sen
+      else:
+        df_dict[cost_par] = agg_data[cost_map[cost_par]] * cost_val
+      
+      total_cost += df_dict[cost_par]
     
-    The cost consists of three parts: inventory holding costs, set-up costs 
-    for shipments and back-ordering cost. 
+    df_dict['average_cost'] = total_cost
+    df = df.append(df.DataFrame(df_dict))
+  
+  # Rename columns to match with other analysis
+  df = df.rename(columns={
+    'holding': 'holding_cost',
+    'backorder': 'back_order_cost',
+    'c_service': 'setup_service_cost',
+    'c_repair': 'setup_repair_cost'
+  })
+
+  return df
     
-    The inventory holding costs are the same since we assume that items can be 
-    used indefinetely and the holding cost are identical no matter what states 
-    items are in. The set-up cost is the sum of all shipments divided by the 
-    simulation time. Finally the back-ordering cost is the back-order cost at
-    specific times multiplied by the amount of time the simulation was in this
-    state.
-
-    Args:
-      agg_data: dataframe containing aggregated info about the simulation
-      costs: dictionary with all cost variables.
-    
-    Returns:
-      Average cost over the entire simulation horizon.
-    """
-    # Compute costs
-    cost_holding = agg_data['avg_stock'] * costs['holding']
-    cost_backorder = agg_data['avg_backorder'] * costs['backorder']
-    cost_service_ship = agg_data['service_shipments'] * costs['c_service']
-    cost_repair_ship = agg_data['repair_shipments'] * costs['c_repair']
-
-    df_results = pd.DataFrame({
-      'holding_cost': cost_holding,
-      'back_order_cost': cost_backorder,
-      'setup_repair_cost': cost_repair_ship,
-      'setup_service_cost': cost_service_ship,
-      'average_cost': cost_holding + cost_backorder + cost_repair_ship + cost_service_ship
-    })
-
-    return df_results
-
 
 def get_sim_fns(path: str):
   """Get all aggregate simulation files of all experiments."""
