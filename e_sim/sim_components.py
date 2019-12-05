@@ -8,6 +8,7 @@ from heapq import heappush, heappop
 from dataclasses import dataclass, field
 
 import numpy as np
+from numpy.random import Generator, PCG64
 import pandas as pd
 from tqdm import tqdm
 
@@ -88,7 +89,9 @@ class Simulator(object):
             S_depot=settings["S_depot"],
             S_warehouse=settings["S_warehouse"],
             demand_rate=settings["demand_rate"],
+            demand_type=settings["demand_type"],
             repair_rate=settings["repair_rate"],
+            repair_type=settings["repair_type"],
             init_stock_depot=settings["init_stock_depot"],
             init_stock_warehouse=settings["init_stock_warehouse"],
             seed=seed,
@@ -123,7 +126,9 @@ class InventoryModel(object):
         S_depot: int,
         S_warehouse: int,
         demand_rate: float,
+        demand_type: str,
         repair_rate: float,
+        repair_type: str,
         init_stock_depot: int,
         init_stock_warehouse: int,
         seed: int,
@@ -133,8 +138,8 @@ class InventoryModel(object):
         self.seed = seed
 
         # Entities of model
-        self.depot = Depot(demand_rate, init_stock_depot, seed)
-        self.warehouse = Warehouse(repair_rate, init_stock_warehouse, seed)
+        self.depot = Depot(demand_rate, demand_type, init_stock_depot, seed)
+        self.warehouse = Warehouse(repair_rate, repair_type, init_stock_warehouse, seed)
 
         # Policy settings
         self.q_service = Q_service
@@ -303,9 +308,14 @@ class Depot(object):
     out_server: Server to send units to.
   """
 
-    def __init__(self, demand_rate: float, init_service_stock: int, seed: int):
+    def __init__(self, 
+                 demand_rate: float, 
+                 demand_type: str, 
+                 init_service_stock: int, 
+                 seed: int):
         """Initialise Depot class."""
         self.seed = seed
+        self.generator = Generator(PCG64(seed))
 
         # Inventory levels
         self.service_stock = init_service_stock
@@ -316,6 +326,10 @@ class Depot(object):
 
         # Demand rate
         self.demand_rate = demand_rate
+        if demand_type == "deterministic":
+            self.create_demand = self._det_demand
+        elif demand_type == "poisson":
+            self.create_demand = self._poisson_demand
 
         self.log_data = pd.DataFrame(
             columns=[
@@ -332,11 +346,13 @@ class Depot(object):
         """Output log file to CSV"""
         self.log_data.to_csv("output/depot_output.csv")
 
-    def create_demand(self):
-        """Demand for one timestep. Give time to next demand and size
-    
-    TODO implement random process."""
+    def _det_demand(self):
+        """Demand for one timestep. Give time to next demand and size"""
         return (self.demand_rate, 1)
+
+    def _poisson_demand(self):
+        """Poisson demand process. Interarrival times are exponential."""
+        return (self.generator.exponential(self.demand_rate), 1)
 
     def process_demand(self, sz: int):
         """Let demand arrive and processes both stocks."""
@@ -397,14 +413,24 @@ class Warehouse(object):
     items_in_repair: number of items currently in repair shop.
   """
 
-    def __init__(self, repair_rate: float, init_service_stock: int, seed: int):
+    def __init__(self, 
+                 repair_rate: float, 
+                 repair_type: str, 
+                 init_service_stock: int, 
+                 seed: int):
         """Initialise Warehouse class."""
         self.seed = seed
+        self.generator = Generator(PCG64(seed+1))
 
         self.service_stock = init_service_stock
         self.repair_stock = 0
         self.repair_rate = repair_rate
         self.items_in_repair = 0
+
+        if repair_type == "deterministic":
+            self._create_repair_sample = self._det_repair
+        elif repair_type == "poisson":
+            self._create_repair_sample = self._exp_repair
 
         self.log_data = pd.DataFrame(
             columns=["time", "service_stock", "repair_stock", "items_in_repair"]
@@ -442,7 +468,13 @@ class Warehouse(object):
         """Create new repair job"""
         self.repair_stock -= 1
         self.items_in_repair += 1
+        return self._create_repair_sample()
+
+    def _det_repair(self):
         return (self.repair_rate, 1)
+    
+    def _exp_repair(self):
+        return (self.generator.exponential(self.repair_rate), 1)
 
     def log(self, time: float):
         """Log relevant info of simulation."""

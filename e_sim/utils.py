@@ -290,7 +290,7 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
         df["average_cost"] = (
             df["holding"] + df["backorder"] + df["c_service"] + df["c_repair"]
         )
-        df_all = df_all.append(df)
+        df_all = df_all.append(df, sort=False)
 
     # Rename columns to match with other analysis
     df_all = df_all.rename(
@@ -306,9 +306,9 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
 
 
 def sensitivity_plot(df_sens: pd.DataFrame):
-    g = sns.FacetGrid(df_sens, row="cost_par", aspect=1.2, sharey=True, sharex=False)
     g = (
-        g.map(plt.plot, "cost_par_vals", "average_cost")
+        sns.FacetGrid(df_sens, row="cost_par", aspect=1.2, sharey=True, sharex=False)
+        .map(plt.plot, "cost_par_vals", "average_cost")
         .add_legend()
         .set_axis_labels("parameter", "Average cost")
     )
