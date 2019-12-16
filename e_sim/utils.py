@@ -145,10 +145,7 @@ def agg_data(sim_data: pd.DataFrame, keep: bool = False):
         sim_time = sim_data.time.iloc[-1]
 
         # Inventory holding cost
-        total_stock = (
-            sim_data.init_stock_depot.unique()[0]
-            + sim_data.init_stock_warehouse.unique()[0]
-        )
+        total_stock = sim_data.S_depot.unique()[0] + sim_data.S_warehouse.unique()[0]
 
         # Average number of service shipments per unit of time
         total_service_shipments = (np.sum(sim_data.SHIP_SERVICE) / q_service) / sim_time
@@ -299,7 +296,9 @@ def sensitivity_cost(agg_data: pd.DataFrame, costs: dict, costs_sen: dict):
 
 def sensitivity_plot(df_sens: pd.DataFrame):
     g = (
-        sns.FacetGrid(df_sens, row="cost_par", aspect=1.2, sharey=True, sharex=False)
+        sns.FacetGrid(
+            df_sens, col="cost_par", col_wrap=2, aspect=1.2, sharey=True, sharex=False
+        )
         .map(plt.plot, "cost_par_vals", "average_cost")
         .add_legend()
         .set_axis_labels("parameter", "Average cost")
