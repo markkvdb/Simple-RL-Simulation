@@ -31,34 +31,15 @@ def experiment_runner(settings, sim_time):
     settings_names = sorted(settings)
     settings_comb = list(product(*(settings[name] for name in settings_names)))
 
-    sim_dfs = pd.DataFrame()
+    dfs = [None] * len(settings_comb)
 
     # Run experiment for every combination
-    pbar = tqdm(total=len(settings_comb))
-    for settings_vals in settings_comb:
-        settings_experiment = dict(zip(settings_names, settings_vals))
+    i = 0
+    for settings_vals in tqdm(settings_comb):
+        dfs[i] = create_experiment(settings_vals, settings_names, sim_time, False)
+        i += 1
 
-        # Run simulation
-        simulator = Simulator(sim_time, settings_experiment)
-        simulator.run()
-
-        # Save output to master data frame
-        sim_data = simulator.create_output_df()
-        for setting, value in settings_experiment.items():
-            sim_data[setting] = value
-
-        # Add column containing all settings as string
-        setting_str = [
-            name + "=" + str(value) for name, value in settings_experiment.items()
-        ]
-        sim_data["settings"] = ", ".join(setting_str)
-
-        sim_dfs = sim_dfs.append(sim_data)
-        pbar.update(1)
-
-    pbar.close()
-
-    return sim_dfs
+    return dfs
 
 
 def settings_to_fn(settings_experiment: dict, agg: bool = False):
@@ -73,12 +54,23 @@ def settings_to_fn(settings_experiment: dict, agg: bool = False):
     return fn
 
 
+def feasible_sim(settings):
+    """Batch size cannot be larger than total stock in system."""
+    total_stock = settings["S_depot"] + settings["S_warehouse"]
+    max_batch = max(settings["Q_service"], settings["Q_repair"])
+
+    return total_stock >= max_batch
+
+
 def create_experiment(
     settings_vals: list, settings_names: list, sim_time: float, save_sim: bool = True
 ):
     """Compute single experiment and save output to csv."""
     # Create experiment dictionary
     settings = dict(zip(settings_names, settings_vals))
+
+    if not feasible_sim(settings):
+        return pd.DataFrame()
 
     simulator = Simulator(sim_time, settings)
     simulator.run()

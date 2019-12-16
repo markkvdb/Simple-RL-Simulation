@@ -6,6 +6,7 @@ from sys import exit
 from enum import Enum, auto
 from heapq import heappush, heappop
 from dataclasses import dataclass, field
+from types import MethodType
 
 import numpy as np
 from numpy.random import Generator, PCG64
@@ -22,6 +23,11 @@ class Events(Enum):
 
     def __lt__(self, other):
         return self.value < other.value
+
+
+class Dists(Enum):
+    DETERMINISTIC = 1
+    POISSON = 2
 
 
 @dataclass(order=True)
@@ -92,8 +98,8 @@ class Simulator(object):
             demand_type=settings["demand_type"],
             repair_rate=settings["repair_rate"],
             repair_type=settings["repair_type"],
-            init_stock_depot=settings["init_stock_depot"],
-            init_stock_warehouse=settings["init_stock_warehouse"],
+            init_stock_depot=settings["S_depot"],
+            init_stock_warehouse=settings["S_warehouse"],
             seed=seed,
         )
 
@@ -308,11 +314,9 @@ class Depot(object):
     out_server: Server to send units to.
   """
 
-    def __init__(self, 
-                 demand_rate: float, 
-                 demand_type: str, 
-                 init_service_stock: int, 
-                 seed: int):
+    def __init__(
+        self, demand_rate: float, demand_type: str, init_service_stock: int, seed: int
+    ):
         """Initialise Depot class."""
         self.seed = seed
         self.generator = Generator(PCG64(seed))
@@ -326,10 +330,7 @@ class Depot(object):
 
         # Demand rate
         self.demand_rate = demand_rate
-        if demand_type == "deterministic":
-            self.create_demand = self._det_demand
-        elif demand_type == "poisson":
-            self.create_demand = self._poisson_demand
+        self.demand_type = demand_type
 
         self.log_data = pd.DataFrame(
             columns=[
@@ -353,6 +354,12 @@ class Depot(object):
     def _poisson_demand(self):
         """Poisson demand process. Interarrival times are exponential."""
         return (self.generator.exponential(self.demand_rate), 1)
+
+    def create_demand(self):
+        if self.demand_type == Dists.DETERMINISTIC:
+            return self._det_demand()
+        elif self.demand_type == Dists.POISSON:
+            return self._poisson_demand()
 
     def process_demand(self, sz: int):
         """Let demand arrive and processes both stocks."""
@@ -413,24 +420,19 @@ class Warehouse(object):
     items_in_repair: number of items currently in repair shop.
   """
 
-    def __init__(self, 
-                 repair_rate: float, 
-                 repair_type: str, 
-                 init_service_stock: int, 
-                 seed: int):
+    def __init__(
+        self, repair_rate: float, repair_type: str, init_service_stock: int, seed: int
+    ):
         """Initialise Warehouse class."""
         self.seed = seed
-        self.generator = Generator(PCG64(seed+1))
+        self.generator = Generator(PCG64(seed + 1))
 
         self.service_stock = init_service_stock
         self.repair_stock = 0
         self.repair_rate = repair_rate
         self.items_in_repair = 0
 
-        if repair_type == "deterministic":
-            self._create_repair_sample = self._det_repair
-        elif repair_type == "poisson":
-            self._create_repair_sample = self._exp_repair
+        self.repair_type = repair_type
 
         self.log_data = pd.DataFrame(
             columns=["time", "service_stock", "repair_stock", "items_in_repair"]
@@ -472,9 +474,15 @@ class Warehouse(object):
 
     def _det_repair(self):
         return (self.repair_rate, 1)
-    
+
     def _exp_repair(self):
         return (self.generator.exponential(self.repair_rate), 1)
+
+    def _create_repair_sample(self):
+        if self.repair_type == Dists.DETERMINISTIC:
+            return self._det_repair()
+        elif self.repair_type == Dists.POISSON:
+            return self._exp_repair()
 
     def log(self, time: float):
         """Log relevant info of simulation."""
