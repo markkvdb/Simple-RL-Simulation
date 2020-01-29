@@ -8,7 +8,7 @@ Started implement the event-based simulation. Things left:
 - [x] Create initialisation for simulation so that event_queue is filled.
 - [x] Repair process is now implemented with single server. Repair rate does not depend on the number of available items.
 - [x] Items in transport now have a separete variable member in the `Model` class.
-- [ ] Order level of serviceable items at the depot is not lowered when shipment is initiated but when order arrives. Does this make sense?
+- [x] Order level of serviceable items at the depot is not lowered when shipment is initiated but when order arrives. Does this make sense? **YES**
 - [x] Plots are now constructed by connecting points, but should have L shape instead of line.
 - [x] Cost computation needs reconsideration for event-based simulator.
 
@@ -26,4 +26,7 @@ Plots can be solved using `plt.step`
 ## Note for self (04-12-2019)
 
 - [x] Add sensitivity analysis to the cost parameters.
-- [ ] 
+
+## Note for self (29-01-2020)
+
+- [ ] Moinzadeh model will not work since orders are processed in batches. This is possible since the forward and reverse flows are identical.
