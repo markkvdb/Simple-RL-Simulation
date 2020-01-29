@@ -30,3 +30,4 @@ Plots can be solved using `plt.step`
 ## Note for self (29-01-2020)
 
 - [ ] Moinzadeh model will not work since orders are processed in batches. This is possible since the forward and reverse flows are identical.
+- [ ] Distribution of the arrival process of repairable items is the superposition of the Erlang distribution.
